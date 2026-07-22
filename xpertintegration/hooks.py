@@ -278,4 +278,6 @@ doc_events = {
 # -----------
 fixtures = [
     {"dt": "Custom Field", "filters": [["module", "=", "XpertIntegration"]]},
+    {"dt": "Role", "filters": [["name", "in", "System User"]]},
+    {"dt": "Custom DocPerm", "filters": [["role", "in", "System User"]]},
 ]
