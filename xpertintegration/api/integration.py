@@ -16,6 +16,7 @@ def xpert_integration(payload=None):
     if payload.get("doctype") == "SaaS Company":
         return create_crm_customer_from_saas(payload)
 
+
 def create_crm_customer_from_saas(payload):
     company_name = payload.get("company_name")
     saas_company_name = payload.get("company_code") or company_name
@@ -232,32 +233,6 @@ def send_customer_data(doc, method=None):
         return
 
     project = doc.get("custom_project") or ""
-
-    user_detail = None
-    if doc.get("crm_deal"):
-        user_detail = frappe.db.sql("""
-            SELECT
-                first_name,
-                last_name,
-                email,
-                mobile_no,
-                custom_password,
-                custom_city,
-                custom_plan,
-                custom_sub_domain,
-                custom_project,
-                custom_sample_data,
-                custom_activation_start_date,
-                custom_activation_end_date,
-                custom_sell_only_products
-            FROM `tabCRM Deal`
-            WHERE name = %s
-        """, (doc.get("crm_deal"),), as_dict=True)
-
-    if user_detail:
-        if not project:
-            project = user_detail[0].get("custom_project") or ""
-
     if not project:
         return
 
@@ -265,35 +240,8 @@ def send_customer_data(doc, method=None):
     if not target_url:
         return
 
-    first_name = ""
-    last_name = ""
-    mobile = ""
-    email = ""
-    city = ""
-    subdomain = ""
-    plan = ""
-    password = ""
-    sample_data = ""
-
-    if user_detail and len(user_detail) > 0:
-        first_name = user_detail[0].get("first_name") or ""
-        last_name = user_detail[0].get("last_name") or ""
-        mobile = user_detail[0].get("mobile_no") or ""
-        email = user_detail[0].get("email") or ""
-        city = user_detail[0].get("custom_city") or ""
-        subdomain = user_detail[0].get("custom_sub_domain") or ""
-        plan = user_detail[0].get("custom_plan") or ""
-        password = user_detail[0].get("custom_password") or ""
-        sample_data = user_detail[0].get("custom_sample_data") or ""
-        activation_start_date = user_detail[0].get("custom_activation_start_date") or ""
-        activation_end_date = user_detail[0].get("custom_activation_end_date") or ""
-        sell_only_products = user_detail[0].get("custom_sell_only_products") or ""
-    else:
-        first_name = doc.get("customer_name") or ""
-        mobile = doc.get("mobile_no") or ""
-        email = doc.get("email_id") or ""
-        city = doc.get("city") or ""
-
+    first_name = doc.get("first_name") or ""
+    last_name = doc.get("last_name") or ""
     owner_name = f"{first_name} {last_name}".strip()
 
     payload = {
@@ -301,35 +249,36 @@ def send_customer_data(doc, method=None):
         "crm_customer": doc.name,
         "business_name": doc.customer_name,
         "owner_name": owner_name,
-        "mobile": mobile,
-        "email": email,
-        "city": city,
-        "subdomain": subdomain,
-        "plan": plan,
-        "password": password,
-        "sample_data": sample_data,
-        "activation_start_date": str(activation_start_date) if activation_start_date else "",
-        "activation_end_date": str(activation_end_date) if activation_end_date else "",
-        "sell_only_products": sell_only_products
+        "mobile": doc.get("mobile_no") or "",
+        "email": doc.get("email_id") or "",
+        "city": doc.get("custom_city") or "",
+        "subdomain": doc.get("custom_sub_domain") or "",
+        "plan": doc.get("custom_plan") or "",
+        "password": doc.get("custom_password") or "",
+        "sample_data": 1 if doc.get("custom_sample_data") else 0,
+        "activation_start_date": str(doc.get("custom_activation_start_date")) if doc.get("custom_activation_start_date") else "",
+        "activation_end_date": str(doc.get("custom_activation_end_date")) if doc.get("custom_activation_end_date") else "",
+        "sell_only_products": 1 if doc.get("custom_sell_only_products") else 0,
+        "project": project
     }
 
     res = send_api_request(target_url, headers, payload)
+
     if res and res.get("status") == "success" and res.get("data"):
-        returned_data = res.get("data").get("message", {})
-        if isinstance(returned_data, str):
-            import json
-            try:
-                # sometimes frappe returns message string if not properly parsed
-                pass
-            except Exception:
-                pass
-        saas_company_code = returned_data.get("company_code") if isinstance(returned_data, dict) else None
+        returned_data = res.get("data", {})
+
+        saas_company_code = None
+        if isinstance(returned_data, dict):
+            saas_company_code = returned_data.get("company_code")
+            if not saas_company_code and isinstance(returned_data.get("message"), dict):
+                saas_company_code = returned_data["message"].get("company_code")
+
         if saas_company_code:
             if method == "validate":
                 doc.custom_project_company = saas_company_code
             else:
                 doc.db_set("custom_project_company", saas_company_code)
-    
+
     return res
 
 
@@ -357,9 +306,11 @@ def send_crm_invoice_data(doc, method=None):
         "total_amount": doc.grand_total,
         "status": doc.status,
         "crm_invoice": doc.name,
+        "project": project
     }
 
     return send_api_request(target_url, headers, payload)
+
 
 @frappe.whitelist()
 def validate_crm_deal(doc, method=None):
@@ -371,80 +322,121 @@ def validate_crm_deal(doc, method=None):
 
         mandatory_fields = [
             "first_name", "email", "mobile_no", "custom_city",
-            "custom_sub_domain", "custom_plan", "custom_password"
+            "custom_sub_domain", "custom_plan", "custom_password",
+            "custom_project"
         ]
         missing = [f for f in mandatory_fields if not doc.get(f)]
         if missing:
-            frappe.throw(f"Please fill the following mandatory fields before winning the deal: {', '.join(missing)}")
-            
-        if not doc.erpnext_customer:
-            customer_name = doc.organization_name or f"{doc.first_name} {doc.last_name}"
-            fields = {
-                "doctype": "Customer",
-                "customer_name": customer_name,
-                "first_name": doc.first_name,
-                "last_name": doc.last_name,
-                "customer_group": "Commercial",
-                "territory": "All Territories",
-                "customer_type": "Company",
-                "email_id": doc.email,
-                "mobile_no": doc.mobile_no,
-                "crm_deal": doc.name,
-                "custom_project": doc.custom_project,
-            }
-            try:
-                cust = frappe.get_doc(fields)
-                cust.insert(ignore_permissions=True)
-                doc.erpnext_customer = cust.name
-            except Exception as e:
-                frappe.throw(f"Failed to create Customer: {str(e)}")
+            frappe.throw(
+                f"Please fill the following mandatory fields before winning the deal: {', '.join(missing)}"
+            )
+
 
 @frappe.whitelist()
 def create_subscription_for_customer(doc, method=None):
-    if doc.crm_deal:
-        deal = frappe.get_doc("CRM Deal", doc.crm_deal)
-        if deal.custom_plan:
-            sub_exists = frappe.db.exists("Subscription", {"party": doc.name})
-            if not sub_exists:
-                company = frappe.defaults.get_user_default("Company") or frappe.db.get_value("Company")
-                try:
-                    sub = frappe.get_doc({
-                        "doctype": "Subscription",
-                        "party_type": "Customer",
-                        "party": doc.name,
-                        "company": company,
-                        "plans": [
-                            {"plan": deal.custom_plan, "qty": 1}
-                        ],
-                        "start_date": deal.custom_activation_start_date or frappe.utils.today(),
-                        "end_date": deal.custom_activation_end_date,
-                        "generate_invoice_at": "Beginning of the current subscription period",
-                        "submit_invoice": 1,
-                    })
-                    sub.insert(ignore_permissions=True)
-                    sub.db_set("generate_invoice_at", "Beginning of the current subscription period")
-                    # explicitly generate invoice just in case it didn't
-                    sub.process()
-                except Exception as e:
-                    frappe.log_error(f"Failed to create Subscription for {doc.name}: {str(e)}", "Customer Subscription")
+    if not doc.crm_deal:
+        return
+
+    if not doc.get("custom_plan"):
+        return
+
+    sub_exists = frappe.db.exists("Subscription", {"party": doc.name})
+    if sub_exists:
+        return
+
+    company = frappe.defaults.get_user_default("Company") or frappe.db.get_value("Company")
+
+    start_date = doc.get("custom_activation_start_date")
+    end_date = doc.get("custom_activation_end_date")
+    
+    if start_date:
+        start_date = str(start_date)
+    if end_date:
+        end_date = str(end_date)
+
+    try:
+        plan_doc = frappe.get_doc("Subscription Plan", doc.custom_plan)
+        interval = plan_doc.billing_interval
+        interval_count = plan_doc.billing_interval_count or 1
+        
+        from dateutil.relativedelta import relativedelta
+        
+        start_dt = frappe.utils.getdate(start_date or frappe.utils.today())
+        
+        if interval == "Year":
+            min_end = start_dt + relativedelta(years=interval_count)
+        elif interval == "Quarter":
+            min_end = start_dt + relativedelta(months=3 * interval_count)
+        elif interval == "Month":
+            min_end = start_dt + relativedelta(months=interval_count)
+        else:
+            min_end = start_dt + relativedelta(months=1)
+        
+        if end_date:
+            actual_end = frappe.utils.getdate(end_date)
+            if actual_end < min_end:
+                end_date = min_end.strftime("%Y-%m-%d")
+        else:
+            end_date = min_end.strftime("%Y-%m-%d")
+            
+    except Exception:
+        if not end_date:
+            from dateutil.relativedelta import relativedelta
+            start_dt = frappe.utils.getdate(start_date or frappe.utils.today())
+            end_date = (start_dt + relativedelta(years=1)).strftime("%Y-%m-%d")
+
+    try:
+        sub = frappe.get_doc({
+            "doctype": "Subscription",
+            "party_type": "Customer",
+            "party": doc.name,
+            "company": company,
+            "plans": [
+                {"plan": doc.custom_plan, "qty": 1}
+            ],
+            "start_date": start_date or frappe.utils.today(),
+            "end_date": end_date,
+            "generate_invoice_at": "Beginning of the current subscription period",
+            "submit_invoice": 1,
+        })
+        sub.insert(ignore_permissions=True)
+        sub.process()
+    except Exception as e:
+        frappe.log_error(f"Failed to create Subscription for {doc.name}: {str(e)}", "Customer Subscription")
+
 
 @frappe.whitelist()
 def before_customer_insert(doc, method=None):
-    if doc.crm_deal:
-        deal = frappe.get_doc("CRM Deal", doc.crm_deal)
-        fields_to_sync = [
-            "custom_password",
-            "custom_city",
-            "custom_plan",
-            "custom_sub_domain",
-            "custom_sample_data",
-            "custom_activation_start_date",
-            "custom_activation_end_date",
-            "custom_sell_only_products"
-        ]
-        for field in fields_to_sync:
-            if not doc.get(field) and deal.get(field) is not None:
-                doc.set(field, deal.get(field))
+    if not doc.crm_deal:
+        return
+
+    deal = frappe.get_doc("CRM Deal", doc.crm_deal)
+
+    fields_to_sync = [
+        "custom_password",
+        "custom_city",
+        "custom_plan",
+        "custom_sub_domain",
+        "custom_sample_data",
+        "custom_activation_start_date",
+        "custom_activation_end_date",
+        "custom_sell_only_products",
+        "custom_project"
+    ]
+    for field in fields_to_sync:
+        if not doc.get(field) and deal.get(field) is not None:
+            doc.set(field, deal.get(field))
+
+    # Also sync basic fields if empty
+    if not doc.get("first_name") and deal.get("first_name"):
+        doc.first_name = deal.first_name
+    if not doc.get("last_name") and deal.get("last_name"):
+        doc.last_name = deal.last_name
+    if not doc.get("email_id") and deal.get("email"):
+        doc.email_id = deal.email
+    if not doc.get("mobile_no") and deal.get("mobile_no"):
+        doc.mobile_no = deal.mobile_no
+
 
 @frappe.whitelist()
 def after_crm_deal_insert(doc, method=None):
@@ -462,7 +454,8 @@ def after_crm_deal_insert(doc, method=None):
             task.insert(ignore_permissions=True)
         except Exception as e:
             frappe.log_error(f"Failed to create CRM Task for Deal {doc.name}: {str(e)}", "CRM Deal Task Creation")
-            
+
+
 @frappe.whitelist()
 def after_crm_lead_insert(doc, method=None):
     if doc.get("custom_assigned_to"):
@@ -480,6 +473,7 @@ def after_crm_lead_insert(doc, method=None):
         except Exception as e:
             frappe.log_error(f"Failed to create CRM Task for Deal {doc.name}: {str(e)}", "CRM Deal Task Creation")
 
+
 @frappe.whitelist()
 def before_sales_invoice_insert(doc, method=None):
     if doc.get("subscription"):
@@ -487,6 +481,7 @@ def before_sales_invoice_insert(doc, method=None):
             project = frappe.db.get_value("Customer", doc.customer, "custom_project")
             if project:
                 doc.project = project
+
 
 @frappe.whitelist()
 def send_subscription_status_data(doc, method=None):
@@ -522,6 +517,7 @@ def send_subscription_status_data(doc, method=None):
             "start_date": doc.start_date,
             "end_date": doc.end_date,
             "status": doc.status,
-            "amount_paid": 0
+            "amount_paid": 0, 
+            "project": project
         }
         return send_api_request(target_url, headers, payload)
