@@ -462,6 +462,23 @@ def after_crm_deal_insert(doc, method=None):
             task.insert(ignore_permissions=True)
         except Exception as e:
             frappe.log_error(f"Failed to create CRM Task for Deal {doc.name}: {str(e)}", "CRM Deal Task Creation")
+            
+@frappe.whitelist()
+def after_crm_lead_insert(doc, method=None):
+    if doc.get("custom_assigned_to"):
+        try:
+            task = frappe.get_doc({
+                "doctype": "CRM Task",
+                "title": f"Follow up on Lead: {doc.name}",
+                "assigned_to": doc.custom_assigned_to,
+                "status": "Todo",
+                "reference_doctype": "CRM Lead",
+                "reference_docname": doc.name,
+                "description": f"Automatically created task for Lead {doc.name}"
+            })
+            task.insert(ignore_permissions=True)
+        except Exception as e:
+            frappe.log_error(f"Failed to create CRM Task for Deal {doc.name}: {str(e)}", "CRM Deal Task Creation")
 
 @frappe.whitelist()
 def before_sales_invoice_insert(doc, method=None):

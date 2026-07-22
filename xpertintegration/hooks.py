@@ -148,6 +148,9 @@ doc_events = {
         "after_insert": "xpertintegration.api.integration.send_subscription_data",
         "on_update": "xpertintegration.api.integration.send_subscription_data",
     },
+    "CRM Lead": {
+        "after_insert": "xpertintegration.api.integration.after_crm_lead_insert",
+    },
     "CRM Deal": {
         "validate": "xpertintegration.api.integration.validate_crm_deal",
         "after_insert": "xpertintegration.api.integration.after_crm_deal_insert",
