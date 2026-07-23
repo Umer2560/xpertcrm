@@ -323,12 +323,12 @@ def validate_crm_deal(doc, method=None):
         mandatory_fields = [
             "first_name", "email", "mobile_no", "custom_city",
             "custom_sub_domain", "custom_plan", "custom_password",
-            "custom_project"
+            "custom_project", "custom_activation_start_date", "custom_activation_end_date"
         ]
-        missing = [f for f in mandatory_fields if not doc.get(f)]
-        if missing:
+        missing_labels = [doc.meta.get_label(f) for f in mandatory_fields if not doc.get(f)]
+        if missing_labels:
             frappe.throw(
-                f"Please fill the following mandatory fields before winning the deal: {', '.join(missing)}"
+                f"Please fill the following mandatory fields before winning the deal: {', '.join(missing_labels)}"
             )
 
 
