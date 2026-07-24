@@ -162,6 +162,9 @@ doc_events = {
     "Subscription": {
         "on_update": "xpertintegration.api.integration.send_subscription_status_data",
     },
+    "CRM Call Log": {
+        "on_update": "xpertintegration.api.integration.update_lead_last_call_log"
+    }
 }
 
 # Scheduled Tasks
@@ -200,10 +203,13 @@ doc_events = {
 
 # Overriding Methods
 # ------------------------------
-#
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "xpertintegration.event.get_events"
-# }
+
+override_whitelisted_methods = {
+	"crm.api.session.get_users": "xpertintegration.api.session.get_users",
+	"crm.api.session.get_organizations": "xpertintegration.api.session.get_organizations",
+	"crm.api.activities.get_activities": "xpertintegration.api.activities.get_activities",
+}
+
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

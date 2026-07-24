@@ -521,3 +521,15 @@ def send_subscription_status_data(doc, method=None):
             "project": project
         }
         return send_api_request(target_url, headers, payload)
+
+
+@frappe.whitelist()
+def update_lead_last_call_log(doc, method=None):
+    if doc.reference_doctype == "CRM Lead" and doc.reference_docname:
+        call_type = "Inbound Call" if doc.type == "Incoming" else "Outbound Call"
+        date_str = frappe.utils.format_date(doc.creation, "MMM dd, yyyy")
+        status = doc.status or ""
+        
+        summary = f"{call_type} • {date_str} • {status}"
+        
+        frappe.db.set_value("CRM Lead", doc.reference_docname, "custom_last_call_log", summary)
