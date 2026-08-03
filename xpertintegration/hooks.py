@@ -42,8 +42,9 @@ app_license = "mit"
 # include js in page
 # page_js = {"page" : "public/js/file.js"}
 
-# include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {
+    "Customer": "public/js/customer.js",
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -140,8 +141,8 @@ app_license = "mit"
 
 doc_events = {
     "Subscription Plan": {
-        "after_insert": "xpertintegration.api.integration.send_subscription_data",
-        "on_update": "xpertintegration.api.integration.send_subscription_data",
+        "after_insert": "xpertintegration.api.integration.broadcast_crm_document",
+        "on_update": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "CRM Lead": {
         "after_insert": "xpertintegration.api.integration.after_crm_lead_insert",
@@ -152,20 +153,25 @@ doc_events = {
     },
     "Customer": {
         "before_insert": "xpertintegration.api.integration.before_customer_insert",
-        "validate": "xpertintegration.api.integration.send_customer_data",
-        "after_insert": "xpertintegration.api.integration.create_subscription_for_customer",
+        "after_insert": [
+            "xpertintegration.api.integration.broadcast_crm_document",
+            "xpertintegration.api.integration.create_subscription_for_customer"
+        ],
+        "on_update": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Sales Invoice": {
         "before_insert": "xpertintegration.api.integration.before_sales_invoice_insert",
-        "on_submit": "xpertintegration.api.integration.send_crm_invoice_data",
+        "on_submit": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Subscription": {
-        "on_update": "xpertintegration.api.integration.send_subscription_status_data",
+        "after_insert": "xpertintegration.api.integration.broadcast_crm_document",
+        "on_update": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "CRM Call Log": {
         "on_update": "xpertintegration.api.integration.update_lead_last_call_log"
     }
 }
+
 
 # Scheduled Tasks
 # ---------------
