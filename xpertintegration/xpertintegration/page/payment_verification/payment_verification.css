@@ -1,0 +1,13 @@
+.payment-verification-container {
+    padding: 15px;
+}
+
+.payment-verification-container .proof-image {
+    width: 80px; 
+    height: 80px; 
+    object-fit: cover; 
+    border-radius: 6px; 
+    cursor: pointer; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    border: 1px solid #ddd;
+}

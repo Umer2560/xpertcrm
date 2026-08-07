@@ -1,0 +1,24 @@
+[
+ {
+  "color": "teal",
+  "deal_status": "Payment Verfication",
+  "docstatus": 0,
+  "doctype": "CRM Deal Status",
+  "modified": "2026-08-05 15:29:31.940978",
+  "name": "Payment Verfication",
+  "position": 0,
+  "probability": 75.0,
+  "type": "Ongoing"
+ },
+ {
+  "color": "yellow",
+  "deal_status": "In Trail",
+  "docstatus": 0,
+  "doctype": "CRM Deal Status",
+  "modified": "2026-08-05 15:29:19.383523",
+  "name": "In Trail",
+  "position": 0,
+  "probability": 25.0,
+  "type": "Ongoing"
+ }
+]

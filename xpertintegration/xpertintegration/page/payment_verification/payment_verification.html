@@ -1,0 +1,131 @@
+<div class="payment-verification-wrapper m-4">
+    <div class="frappe-card border rounded shadow-sm bg-white">
+        <div class="table-responsive">
+            <table class="table mb-0" style="font-size: 13px;">
+                <thead class="text-white"
+                    style="background-color: #6c757d; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px;">
+                    <tr>
+                        <th class="border-top-0 border-bottom-0 py-3 px-4" style="width: 25%;">DETAILS</th>
+                        <th class="border-top-0 border-bottom-0 py-3 text-center" style="width: 55%;">ATTACHMENT</th>
+                        <th class="border-top-0 border-bottom-0 py-3 px-4" style="width: 20%;">VERIFIED THROUGH</th>
+                    </tr>
+                </thead>
+                <tbody id="payment-verification-body">
+                    {% if (data.length === 0) { %}
+                    <tr>
+                        <td colspan="3" class="text-center text-muted py-5">
+                            <i class="fa fa-inbox fa-3x mb-3 text-extra-muted"></i>
+                            <h5 class="font-weight-light">No pending verifications found</h5>
+                        </td>
+                    </tr>
+                    {% } else { %}
+                    {% for (let i=0, l=data.length; i<l; i++) { %} {% let row=data[i]; %} <tr data-name="{{ row.name }}"
+                        class="border-bottom">
+                        <td class="align-middle px-4 py-4">
+                            <div class="d-flex flex-column">
+                                <a href="/app/crm-deal/{{ row.name }}" class="font-weight-bold text-dark mb-1"
+                                    style="font-size: 14px;">{{ row.name }}</a>
+                                <span class="text-muted mb-2">Company: {{ row.organization || row.custom_company_code ||
+                                    "-" }}</span>
+
+                                {% if (row.custom_reference_number) { %}
+                                <div class="mt-2">
+                                    <small class="text-muted text-uppercase"
+                                        style="font-size: 9px; letter-spacing: 0.5px;">Reference #: </small>
+                                    <span class="font-weight-bold" style="font-size: 12px;">{{
+                                        row.custom_reference_number }}</span>
+                                </div>
+                                {% } %}
+
+                                {% if (row.custom_posting_date) { %}
+                                <div class="mt-2">
+                                    <small class="text-muted text-uppercase"
+                                        style="font-size: 9px; letter-spacing: 0.5px;">Posting Date: </small>
+                                    <span style="font-size: 11px;">{{ row.custom_posting_date }}</span>
+                                </div>
+                                {% } %}
+
+                                {% if (row.custom_payment_date) { %}
+                                <div class="mt-2">
+                                    <small class="text-muted text-uppercase"
+                                        style="font-size: 9px; letter-spacing: 0.5px;">Payment Date: </small>
+                                    <span style="font-size: 11px;">{{ row.custom_payment_date }}</span>
+                                </div>
+                                {% } %}
+
+                                {% if (row.custom_due_date) { %}
+                                <div class="mt-2">
+                                    <small class="text-muted text-uppercase"
+                                        style="font-size: 9px; letter-spacing: 0.5px;">Due Date: </small>
+                                    <span style="font-size: 11px;">{{ row.custom_due_date }}</span>
+                                </div>
+                                {% } %}
+
+                                <div class="mt-2">
+                                    <small class="text-muted text-uppercase"
+                                        style="font-size: 9px; letter-spacing: 0.5px;">Amount: </small>
+                                    <span class="font-weight-bold text-primary">{{ format_currency(row.custom_amount,
+                                        frappe.boot.sysdefaults.currency) }}</span>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="align-middle text-center py-4">
+                            {% if (row.custom_payment_proof) %}
+                            {% let url = row.custom_payment_proof; %}
+                            {% let ext = url.split(".").pop().toLowerCase(); %}
+                            {% if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) %}
+                            <div class="d-inline-block proof-image-wrapper"
+                                style="cursor: pointer; max-height: 350px; overflow: hidden; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <img src="{{ url }}" class="proof-image" data-url="{{ url }}"
+                                    title="Click to view full image"
+                                    style="width: 100%; max-height: 350px; object-fit: contain;" />
+                            </div>
+                            {% } else { %}
+                            <a href="{{ url }}" target="_blank" class="btn btn-sm btn-light border text-muted"><i
+                                    class="fa fa-file mr-1"></i> View File</a>
+                            {% } %}
+                            {% } else { %}
+                            <span class="badge badge-subtle badge-warning">No Attachment</span>
+                            {% } %}
+                        </td>
+                        <td class="align-middle px-4 py-4">
+                            <div class="d-flex flex-column" style="max-width: 250px;">
+                                <label class="text-muted mb-2"
+                                    style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">VERIFIED
+                                    THROUGH</label>
+                                <select class="form-control action-select bg-light shadow-sm font-weight-bold mb-3"
+                                    style="border: 1px solid #ced4da; height: 36px;">
+                                    <option value="" class="text-muted">— Select method —</option>
+                                    <option value="Paid" {% if (row.custom_payment_status==="Paid" ) { %}selected{% }
+                                        %}>Received</option>
+                                    <option value="Cancelled" {% if (row.custom_payment_status==="Cancelled" ) {
+                                        %}selected{% } %}>Cancelled</option>
+                                    <option value="Unpaid" {% if (row.custom_payment_status==="Unpaid" ) { %}selected{%
+                                        } %}>Not Received</option>
+                                </select>
+
+                                {% if (row.custom_payment_status === "Cancelled" || row.custom_payment_status ===
+                                "Unpaid") { %}
+                                <textarea class="form-control remarks-input shadow-sm bg-light mb-3"
+                                    placeholder="Remarks..."
+                                    style="display: block; font-size: 12px; resize: none; border: 1px solid #ced4da; min-height: 60px;">{{ row.custom_payment_remarks || "" }}</textarea>
+                                {% } else { %}
+                                <textarea class="form-control remarks-input shadow-sm bg-light mb-3"
+                                    placeholder="Remarks..."
+                                    style="display: none; font-size: 12px; resize: none; border: 1px solid #ced4da; min-height: 60px;">{{ row.custom_payment_remarks || "" }}</textarea>
+                                {% } %}
+
+                                <button class="btn btn-dark btn-block btn-save shadow-sm" data-name="{{ row.name }}"
+                                    style="height: 36px;">
+                                    Verify
+                                </button>
+                            </div>
+                        </td>
+                        </tr>
+                        {% } %}
+                        {% } %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
