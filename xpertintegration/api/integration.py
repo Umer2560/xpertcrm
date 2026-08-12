@@ -34,7 +34,7 @@ def get_lead_to_deal_mapping():
     return [
         {"source": "custom_project", "target": "custom_project"},
         {"source": "custom_plan", "target": "custom_plan"},
-        {"source": "custom_city", "target": "custom_city"},
+        {"source": "territory", "target": "territory"},
         {"source": "custom_sub_domain", "target": "custom_sub_domain"},
         {"source": "custom_no_of_connections", "target": "custom_no_of_connections"},
         {"source": "custom_sample_data", "target": "custom_sample_data"},
@@ -62,7 +62,7 @@ def get_deal_win_validation_rules():
             "first_name",
             "email",
             "mobile_no",
-            "custom_city",
+            "territory",
             "custom_sub_domain",
             "custom_plan",
             "custom_password",
@@ -76,8 +76,8 @@ def get_deal_win_validation_rules():
 def get_customer_deal_sync_fields():
     return [
         "custom_password",
-        "custom_city",
         "custom_plan",
+        "territory",
         "custom_sub_domain",
         "custom_sample_data",
         "custom_activation_start_date",
@@ -368,6 +368,9 @@ def validate_crm_deal(doc, method=None):
     if doc.status == "Won":
         _validate_deal_win_conditions(doc)
 
+    # 5. Broadcast as Customer if In Trial
+    send_trial_deal_as_customer(doc)
+
 
 def _validate_deal_win_conditions(doc):
     project = doc.get("custom_project")
@@ -418,6 +421,62 @@ def _validate_deal_win_conditions(doc):
         frappe.throw(rules["error_message"].format(fields=", ".join(labels)))
 
 
+def send_trial_deal_as_customer(doc):
+    if doc.status == "In Trial" and not doc.get("custom_company_code"):
+        # Validate fields before proceeding
+        project_label = doc.meta.get_label("custom_project") or "Project"
+        if not doc.get("custom_project"):
+            frappe.throw(
+                f"Please fill the following mandatory fields before changing the status to In Trial: {project_label}"
+            )
+
+        rules = get_deal_win_validation_rules()
+        missing_fields = [f for f in rules["mandatory_fields"] if not doc.get(f)]
+        if missing_fields:
+            labels = [doc.meta.get_label(f) for f in missing_fields]
+            frappe.throw(
+                f"Please fill the following mandatory fields before changing the status to In Trial: {', '.join(labels)}"
+            )
+
+        payload = frappe.parse_json(doc.as_json())
+        payload["doctype"] = "Customer"
+
+        project_val = doc.get("custom_project")
+        if not project_val:
+            return
+
+        project_id = (
+            frappe.db.get_value("Project", {"project_name": project_val}, "name")
+            or frappe.db.get_value("Project", project_val, "name")
+            or project_val
+        )
+        if not project_id:
+            return
+
+        project_name = (
+            frappe.db.get_value("Project", project_id, "project_name") or project_id
+        )
+
+        payload = _build_broadcast_payload(payload, project_id, project_name)
+
+        try:
+            frappe.enqueue(
+                "xpertintegration.api.integration._execute_broadcast",
+                queue="long",
+                payload=payload,
+                doctype="Customer",
+                docname=doc.name,
+                project_id=project_id,
+                source_doctype=doc.doctype,
+                source_docname=doc.name,
+            )
+        except Exception:
+            frappe.log_error(
+                title=f"Broadcast Enqueue Failed: {doc.doctype} {doc.name} as Customer",
+                message=frappe.get_traceback(),
+            )
+
+
 @frappe.whitelist()
 def validate_crm_fields(doc, method=None):
     # Duplicate company check
@@ -456,10 +515,15 @@ def validate_crm_fields(doc, method=None):
 
 @frappe.whitelist()
 def validate_sales_invoice(doc, method=None):
-    if doc.get("subscription") and not doc.get("project") and doc.get("customer"):
-        project = frappe.db.get_value("Customer", doc.customer, "custom_project")
-        if project:
-            doc.project = project
+    if doc.get("subscription") and doc.get("customer"):
+        cust = frappe.db.get_value(
+            "Customer", doc.customer, ["custom_project", "crm_deal"], as_dict=True
+        )
+        if cust:
+            if cust.custom_project and not doc.get("project"):
+                doc.project = cust.custom_project
+            if cust.crm_deal and not doc.get("custom_crm_deal"):
+                doc.custom_crm_deal = cust.crm_deal
 
 
 # SECTION 5: CRM LEAD HOOKS
@@ -508,6 +572,8 @@ def _auto_convert_lead_to_deal(lead_doc):
     deal_fields = {
         "custom_create_company": 1,
         "status": "In Trial",
+        "custom_posting_date": frappe.utils.today(),
+        "custom_due_date": frappe.utils.add_days(frappe.utils.today(), 5),
     }
 
     # Apply dynamic field mapping
@@ -635,6 +701,9 @@ def broadcast_crm_deal(doc, method=None):
     if not is_trial and not has_payment:
         return
 
+    if doc.get("status") == "Won":
+        return
+
     broadcast_crm_document(doc, method)
 
 
@@ -668,7 +737,102 @@ def before_customer_insert(doc, method=None):
 
 
 @frappe.whitelist()
+def broadcast_customer_company(doc, method=None):
+    try:
+        frappe.log_error(
+            title="Customer-Company Debug: Start",
+            message=f"Doc: {doc.name}, Company Code: {doc.get('custom_project_company')}",
+        )
+
+        if doc.get("custom_project_company"):
+            payload = frappe.parse_json(doc.as_json())
+            payload["doctype"] = "Customer-Company"
+
+            project_val = doc.get("custom_project")
+            if not project_val and doc.get("crm_deal"):
+                project_val = frappe.db.get_value(
+                    "CRM Deal", doc.crm_deal, "custom_project"
+                )
+
+            if not project_val:
+                frappe.log_error(
+                    title="Customer-Company Debug: Abort",
+                    message="No project_val found",
+                )
+                return
+
+            project_id = (
+                frappe.db.get_value("Project", {"project_name": project_val}, "name")
+                or frappe.db.get_value("Project", project_val, "name")
+                or project_val
+            )
+            if not project_id:
+                frappe.log_error(
+                    title="Customer-Company Debug: Abort",
+                    message=f"No project_id found for project_val: {project_val}",
+                )
+                return
+
+            project_name = (
+                frappe.db.get_value("Project", project_id, "project_name") or project_id
+            )
+
+            payload = _build_broadcast_payload(payload, project_id, project_name)
+            payload["doctype"] = "Customer-Company"
+
+            doc_name = doc.name or "New Customer"
+            target_url, headers = get_project_settings(project_id, throw=False)
+            if not target_url:
+                frappe.log_error(
+                    title="Customer-Company Debug: Abort",
+                    message=f"No target_url found for project: {project_id}",
+                )
+                return
+
+            frappe.log_error(
+                title="Customer-Company Debug: Request",
+                message=f"URL: {target_url}\nPayload: {payload}",
+            )
+
+            response = send_api_request(
+                target_url,
+                headers,
+                payload,
+                source_doctype=doc.doctype,
+                source_docname=doc_name,
+            )
+
+            frappe.log_error(
+                title="Customer-Company Debug: Response", message=str(response)
+            )
+
+            if response.get("status") == "success":
+                data = response.get("data", {})
+                message = data.get("message", {})
+
+                callback_data = {}
+                if isinstance(message, dict):
+                    callback_data = message.get("callback_data", {})
+
+                returned_company = callback_data.get("custom_project_company")
+                if not returned_company:
+                    frappe.throw("Against this project no company found")
+            else:
+                frappe.throw(
+                    f"Failed to verify company in project: {response.get('error')}"
+                )
+    except Exception:
+        frappe.log_error(
+            title="Customer-Company Debug: Exception", message=frappe.get_traceback()
+        )
+        raise
+
+
+@frappe.whitelist()
 def create_subscription(doc, method=None):
+    if getattr(doc.flags, "integration_broadcasted", False):
+        return
+
     if not doc.crm_deal or not doc.get("custom_plan"):
         return
 
@@ -679,12 +843,12 @@ def create_subscription(doc, method=None):
         "Company"
     )
     start_date = doc.get("custom_activation_start_date")
-    end_date = _calculate_subscription_end_date(
-        doc.custom_plan, start_date, doc.get("custom_activation_end_date")
-    )
+    start_dt = getdate(start_date or today())
+    end_date = (start_dt + relativedelta(years=1)).strftime("%Y-%m-%d")
 
     try:
         plans_list = [{"plan": doc.custom_plan, "qty": 1}]
+        deal_doc = None
 
         if doc.crm_deal:
             deal_doc = _safe_get_doc("CRM Deal", doc.crm_deal)
@@ -704,10 +868,57 @@ def create_subscription(doc, method=None):
                 "end_date": end_date,
                 "generate_invoice_at": "Beginning of the current subscription period",
                 "submit_invoice": 1,
+                "custom_project_company": doc.custom_project_company,
             }
         )
         sub.insert(ignore_permissions=True)
         sub.process()
+
+        # Create Payment Entry if Paid Amount exists in CRM Deal
+        if deal_doc and deal_doc.get("custom_paid_amount"):
+            paid_amount = deal_doc.custom_paid_amount
+
+            invoices = frappe.get_all(
+                "Sales Invoice",
+                filters={"subscription": sub.name},
+                limit=1,
+            )
+
+            if invoices:
+                inv_name = invoices[0].name
+                # Pass CRM Deal to Sales Invoice
+                frappe.db.set_value(
+                    "Sales Invoice", inv_name, "custom_crm_deal", doc.crm_deal
+                )
+
+                try:
+                    from erpnext.accounts.doctype.payment_entry.payment_entry import (
+                        get_payment_entry,
+                    )
+
+                    pe = get_payment_entry("Sales Invoice", inv_name, bank_account=None)
+                    pe.paid_amount = paid_amount
+                    pe.received_amount = paid_amount
+
+                    for ref in pe.references:
+                        if ref.reference_name == inv_name:
+                            ref.allocated_amount = paid_amount
+
+                    pe.insert(ignore_permissions=True)
+                    pe.submit()
+
+                    # Check the updated Sales Invoice status and update CRM Deal
+                    si_status = frappe.db.get_value("Sales Invoice", inv_name, "status")
+                    if si_status in ["Partially Paid", "Paid"]:
+                        frappe.db.set_value(
+                            "CRM Deal", doc.crm_deal, "custom_payment_status", si_status
+                        )
+
+                except Exception:
+                    frappe.log_error(
+                        title=f"Payment Entry Creation Failed for {inv_name}",
+                        message=frappe.get_traceback(),
+                    )
 
     except Exception:
         frappe.log_error(
@@ -932,14 +1143,14 @@ def broadcast_crm_document(doc, method=None):
         return
 
     # Skip customers that have custom_create_company on their deal
-    if my_doctype == "Customer":
-        deal_name = payload.get("crm_deal")
-        if deal_name:
-            is_create_company = frappe.db.get_value(
-                "CRM Deal", deal_name, "custom_create_company"
-            )
-            if is_create_company:
-                return
+    # if my_doctype == "Customer":
+    #     deal_name = payload.get("crm_deal")
+    #     if deal_name:
+    #         is_create_company = frappe.db.get_value(
+    #             "CRM Deal", deal_name, "custom_create_company"
+    #         )
+    #         if is_create_company:
+    #             return
 
     # Resolve project
     project_val = payload.get("custom_project") or payload.get("project")
@@ -1083,6 +1294,105 @@ def _execute_broadcast(
         )
 
 
+@frappe.whitelist()
+def broadcast_delete_crm_document(doc, method=None):
+    if not doc:
+        return
+
+    logger = get_integration_logger()
+
+    # Normalize input
+    if isinstance(doc, str):
+        doc = frappe.parse_json(doc)
+
+    doc_name = doc.get("name") if isinstance(doc, dict) else doc.name
+    my_doctype = doc.get("doctype") if isinstance(doc, dict) else doc.doctype
+
+    project_val = (
+        doc.get("custom_project")
+        if isinstance(doc, dict)
+        else getattr(doc, "custom_project", None)
+    )
+    if not project_val and my_doctype == "Subscription":
+        party = (
+            doc.get("party") if isinstance(doc, dict) else getattr(doc, "party", None)
+        )
+        if party:
+            project_val = frappe.db.get_value("Customer", party, "custom_project")
+
+    if not project_val:
+        return
+
+    project_id = (
+        frappe.db.get_value("Project", {"project_name": project_val}, "name")
+        or frappe.db.get_value("Project", project_val, "name")
+        or project_val
+    )
+    if not project_id:
+        return
+
+    project_name = (
+        frappe.db.get_value("Project", project_id, "project_name") or project_id
+    )
+
+    # Build clean payload
+    payload = _build_broadcast_payload(doc, project_id, project_name)
+    payload["integration_action"] = "delete"
+
+    # Send synchronously so we can block the local deletion if it fails remotely
+    target_url, headers = get_project_settings(project_id, throw=False)
+    if not target_url:
+        logger.warning(
+            f"No project settings for {project_id}, aborting delete broadcast"
+        )
+        return
+
+    try:
+        response = send_api_request(target_url, headers, payload, my_doctype, doc_name)
+        if response.get("status") == "failed":
+            error_data = {}
+            error_str = response.get("error", "{}")
+            if "{" in error_str:
+                try:
+                    error_data = json.loads(error_str)
+                except Exception:
+                    pass
+
+            exc = error_data.get("exc", "")
+            # Try to identify LinkExistsError
+            if (
+                "LinkExistsError" in exc
+                or error_data.get("exc_type") == "LinkExistsError"
+            ):
+                frappe.throw(
+                    f"Cannot delete '{doc_name}' because it is in use in the POS system.",
+                    exc=frappe.LinkExistsError,
+                )
+
+            server_messages = error_data.get("_server_messages")
+            if server_messages:
+                import ast
+
+                try:
+                    messages = ast.literal_eval(server_messages)
+                    if messages and isinstance(messages, list):
+                        msg_dict = json.loads(messages[0])
+                        frappe.throw(f"Remote POS Error: {msg_dict.get('message')}")
+                except Exception:
+                    frappe.throw(f"Remote POS Error: {server_messages}")
+
+            frappe.throw(f"Failed to delete in remote POS system. Error: {error_str}")
+
+    except Exception as e:
+        if isinstance(e, frappe.exceptions.ValidationError):
+            raise
+        frappe.log_error(
+            title=f"Delete Broadcast Failed: {my_doctype} {doc_name}",
+            message=frappe.get_traceback(),
+        )
+        frappe.throw(f"Failed to synchronize deletion with POS system: {str(e)}")
+
+
 # SECTION 11: CUSTOM SUBSCRIPTION
 class CustomSubscription(Subscription):
     def get_items_from_plans(self, plans, prorate=0):
@@ -1174,3 +1484,61 @@ class CustomSubscription(Subscription):
             items.append(item)
 
         return items
+
+
+@frappe.whitelist()
+def handle_deal_payment_task(doc, method=None):
+    if doc.get("custom_payment_status") == "Verify Payment" and doc.get(
+        "custom_payment_proof"
+    ):
+        company_name = doc.get("organization") or doc.name
+        task_title = f"Verify Payment - {company_name}"
+
+        existing = frappe.db.exists(
+            "CRM Task",
+            {
+                "reference_doctype": "CRM Deal",
+                "reference_docname": doc.name,
+                "title": task_title,
+            },
+        )
+        if not existing:
+            try:
+                task = frappe.get_doc(
+                    {
+                        "doctype": "CRM Task",
+                        "title": task_title,
+                        "assigned_to": "accountant@raabtax.com",
+                        "status": "Todo",
+                        "reference_doctype": "CRM Deal",
+                        "reference_docname": doc.name,
+                        "description": f"Verify payment for Deal {doc.name}.<br><br><a href='/app/payment-verification'>Payment Verification Page</a>",
+                    }
+                )
+                task.insert(ignore_permissions=True)
+            except Exception:
+                frappe.log_error(
+                    title=f"Payment Task Creation Failed: {doc.name}",
+                    message=frappe.get_traceback(),
+                )
+
+    elif doc.get("custom_payment_status") == "Paid":
+        company_name = doc.get("organization") or doc.name
+        task_title = f"Verify Payment - {company_name}"
+
+        tasks = frappe.get_all(
+            "CRM Task",
+            filters={
+                "reference_doctype": "CRM Deal",
+                "reference_docname": doc.name,
+                "title": task_title,
+                "status": ["!=", "Completed"],
+            },
+        )
+        for t in tasks:
+            frappe.db.set_value("CRM Task", t.name, "status", "Completed")
+
+@frappe.whitelist()
+def update_deal_payment_status(doc, method=None):
+    if doc.get("custom_crm_deal"):
+        frappe.db.set_value("CRM Deal", doc.custom_crm_deal, "custom_payment_status", doc.status)

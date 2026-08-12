@@ -143,6 +143,7 @@ doc_events = {
     "Subscription Plan": {
         # "after_insert": "xpertintegration.api.integration.broadcast_crm_document",
         "on_update": "xpertintegration.api.integration.broadcast_subscription_plan",
+        "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
     },
     "CRM Lead": {
         "validate": "xpertintegration.api.integration.validate_crm_fields",
@@ -152,25 +153,39 @@ doc_events = {
     "CRM Deal": {
         "validate": "xpertintegration.api.integration.validate_crm_deal",
         "after_insert": "xpertintegration.api.integration.after_crm_deal_insert",
-        "on_update": "xpertintegration.api.integration.broadcast_crm_deal",
+        "on_update": [
+            "xpertintegration.api.integration.broadcast_crm_deal",
+            "xpertintegration.api.integration.handle_deal_payment_task",
+        ],
     },
     "Customer": {
-        "before_insert": "xpertintegration.api.integration.before_customer_insert",
+        "before_insert": [
+            "xpertintegration.api.integration.before_customer_insert",
+            "xpertintegration.api.integration.broadcast_customer_company",
+        ],
         "after_insert": [
-            "xpertintegration.api.integration.broadcast_customer",
             "xpertintegration.api.integration.create_subscription",
+            # "xpertintegration.api.integration.broadcast_crm_document",
         ],
         # "on_update": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Sales Invoice": {
         "before_insert": "xpertintegration.api.integration.validate_sales_invoice",
         "on_submit": "xpertintegration.api.integration.broadcast_crm_document",
+        "on_update": [
+            "xpertintegration.api.integration.broadcast_crm_document",
+            "xpertintegration.api.integration.update_deal_payment_status",
+        ],
+        "on_change": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Subscription": {
         "on_update": "xpertintegration.api.integration.broadcast_subscription_wrapper",
     },
     "CRM Call Log": {
         "on_update": "xpertintegration.api.integration.update_lead_last_call_log"
+    },
+    "CRM Territory": {
+        "after_insert": "xpertintegration.api.integration.broadcast_crm_document"
     },
 }
 
@@ -303,4 +318,6 @@ fixtures = [
         "dt": "CRM Deal Status",
         "filters": [["name", "in", ["Payment Verfication", "In Trail"]]],
     },
+    "Territory",
+    "CRM Territory",
 ]
