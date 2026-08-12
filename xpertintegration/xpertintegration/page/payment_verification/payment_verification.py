@@ -11,6 +11,7 @@ def get_pending_deals():
             "lead_name",
             "organization",
             "custom_company_code",
+            "mobile_no",
             "custom_amount",
             "custom_payment_proof",
             "custom_payment_status",
@@ -18,9 +19,17 @@ def get_pending_deals():
             "custom_posting_date",
             "custom_payment_date",
             "custom_due_date",
+            "custom_paid_amount",
         ],
         limit=100,
     )
+    
+    date_fields = ["custom_posting_date", "custom_payment_date", "custom_due_date"]
+    for deal in deals:
+        for f in date_fields:
+            if deal.get(f):
+                deal[f] = frappe.utils.formatdate(deal[f], "dd-MMM-yyyy")
+                
     return deals
 
 
