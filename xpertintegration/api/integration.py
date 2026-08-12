@@ -148,18 +148,13 @@ def _sync_doc_fields(source_doc, target_doc, field_map):
 
 
 def _compute_doc_amount(doc):
-    if doc.get("custom_amount"):
-        return doc.get("custom_amount")
+    from frappe.utils import flt
 
-    plan_amount = 0
-    if doc.get("custom_plan"):
-        plan_amount = (
-            frappe.db.get_value("Subscription Plan", doc.custom_plan, "cost") or 0
-        )
+    plan_amount = flt(doc.get("custom_sale_price"))
 
     addons_amount = 0
     for addon in doc.get("custom_addons_table", []):
-        addons_amount += addon.get("amount") or 0
+        addons_amount += flt(addon.get("amount"))
 
     return plan_amount + addons_amount
 
@@ -342,10 +337,7 @@ def send_api_request(
 @frappe.whitelist()
 def validate_crm_deal(doc, method=None):
     # 1. Auto-calculate amount
-    if not doc.get("custom_amount"):
-        amount = _compute_doc_amount(doc)
-        if amount:
-            doc.custom_amount = amount
+    doc.custom_amount = _compute_doc_amount(doc)
 
     # 2. Lock Won deals
     if not doc.is_new():
@@ -847,15 +839,23 @@ def create_subscription(doc, method=None):
     end_date = (start_dt + relativedelta(years=1)).strftime("%Y-%m-%d")
 
     try:
-        plans_list = [{"plan": doc.custom_plan, "qty": 1}]
         deal_doc = None
-
         if doc.crm_deal:
             deal_doc = _safe_get_doc("CRM Deal", doc.crm_deal)
-            if deal_doc:
-                for addon in deal_doc.get("custom_addons_table", []):
-                    if addon.add_on:
-                        plans_list.append({"plan": addon.add_on, "qty": 1})
+
+        plan_entry = {"plan": doc.custom_plan, "qty": 1}
+        if deal_doc and deal_doc.get("custom_sale_price"):
+            plan_entry["custom_cost"] = deal_doc.custom_sale_price
+
+        plans_list = [plan_entry]
+
+        if deal_doc:
+            for addon in deal_doc.get("custom_addons_table", []):
+                if addon.add_on:
+                    addon_entry = {"plan": addon.add_on, "qty": 1}
+                    if addon.get("amount"):
+                        addon_entry["custom_cost"] = addon.amount
+                    plans_list.append(addon_entry)
 
         sub = frappe.get_doc(
             {
@@ -868,6 +868,7 @@ def create_subscription(doc, method=None):
                 "end_date": end_date,
                 "generate_invoice_at": "Beginning of the current subscription period",
                 "submit_invoice": 1,
+                "status": "Active",
                 "custom_project_company": doc.custom_project_company,
             }
         )
@@ -1116,6 +1117,18 @@ def process_incoming_integration_payload(payload=None):
 def broadcast_crm_document(doc, method=None):
     if not doc:
         frappe.throw("Document is required.")
+
+    # STRICT BLOCK: Never broadcast a CRM Deal if it is 'Won'
+    if getattr(doc, "doctype", "") == "CRM Deal" or (
+        isinstance(doc, dict) and doc.get("doctype") == "CRM Deal"
+    ):
+        status = (
+            getattr(doc, "status", None)
+            if not isinstance(doc, dict)
+            else doc.get("status")
+        )
+        if status == "Won":
+            return
 
     logger = get_integration_logger()
 
@@ -1538,7 +1551,10 @@ def handle_deal_payment_task(doc, method=None):
         for t in tasks:
             frappe.db.set_value("CRM Task", t.name, "status", "Completed")
 
+
 @frappe.whitelist()
 def update_deal_payment_status(doc, method=None):
     if doc.get("custom_crm_deal"):
-        frappe.db.set_value("CRM Deal", doc.custom_crm_deal, "custom_payment_status", doc.status)
+        frappe.db.set_value(
+            "CRM Deal", doc.custom_crm_deal, "custom_payment_status", doc.status
+        )

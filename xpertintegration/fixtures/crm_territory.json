@@ -2687,17 +2687,6 @@
   "docstatus": 0,
   "doctype": "CRM Territory",
   "is_group": 0,
-  "modified": "2026-08-11 09:41:51.330353",
-  "name": "Sukkur",
-  "old_parent": null,
-  "parent_crm_territory": null,
-  "territory_manager": null,
-  "territory_name": "Sukkur"
- },
- {
-  "docstatus": 0,
-  "doctype": "CRM Territory",
-  "is_group": 0,
   "modified": "2026-08-11 09:41:51.333669",
   "name": "Sultanpur Mor",
   "old_parent": null,
@@ -3034,6 +3023,17 @@
   "parent_crm_territory": null,
   "territory_manager": null,
   "territory_name": "Lahore"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "CRM Territory",
+  "is_group": 0,
+  "modified": "2026-08-11 09:41:51.330353",
+  "name": "Sukkur",
+  "old_parent": null,
+  "parent_crm_territory": null,
+  "territory_manager": null,
+  "territory_name": "Sukkur"
  },
  {
   "docstatus": 0,

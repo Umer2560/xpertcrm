@@ -141,21 +141,19 @@ doctype_js = {
 
 doc_events = {
     "Subscription Plan": {
-        # "after_insert": "xpertintegration.api.integration.broadcast_crm_document",
         "on_update": "xpertintegration.api.integration.broadcast_subscription_plan",
         "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
     },
     "CRM Lead": {
         "validate": "xpertintegration.api.integration.validate_crm_fields",
         "after_insert": "xpertintegration.api.integration.after_crm_lead_insert",
-        # "on_update": "xpertintegration.api.integration.after_crm_lead_insert",
     },
     "CRM Deal": {
         "validate": "xpertintegration.api.integration.validate_crm_deal",
         "after_insert": "xpertintegration.api.integration.after_crm_deal_insert",
         "on_update": [
             "xpertintegration.api.integration.broadcast_crm_deal",
-            "xpertintegration.api.integration.handle_deal_payment_task",
+            # "xpertintegration.api.integration.handle_deal_payment_task",
         ],
     },
     "Customer": {
@@ -165,18 +163,21 @@ doc_events = {
         ],
         "after_insert": [
             "xpertintegration.api.integration.create_subscription",
-            # "xpertintegration.api.integration.broadcast_crm_document",
         ],
-        # "on_update": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Sales Invoice": {
         "before_insert": "xpertintegration.api.integration.validate_sales_invoice",
+        "after_insert": "xpertintegration.api.integration.update_deal_payment_status",
         "on_submit": "xpertintegration.api.integration.broadcast_crm_document",
+        # "on_update_after_submit": "xpertintegration.api.integration.broadcast_crm_document",
         "on_update": [
+            # "xpertintegration.api.integration.broadcast_crm_document",
+            "xpertintegration.api.integration.update_deal_payment_status",
+        ],
+        "on_change": [
             "xpertintegration.api.integration.broadcast_crm_document",
             "xpertintegration.api.integration.update_deal_payment_status",
         ],
-        "on_change": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Subscription": {
         "on_update": "xpertintegration.api.integration.broadcast_subscription_wrapper",
@@ -310,14 +311,15 @@ override_whitelisted_methods = {
 # Fixtures
 # -----------
 fixtures = [
+    "Territory",
+    "CRM Territory",
     {"dt": "Custom Field", "filters": [["module", "=", "XpertIntegration"]]},
-    # {"dt": "Role", "filters": [["name", "in", "System User"]]},
-    # {"dt": "Custom DocPerm", "filters": [["role", "in", "System User"]]},
     {"dt": "Property Setter", "filters": [["module", "=", "XpertIntegration"]]},
+    {"dt": "Client Script", "filters": [["module", "=", "XpertIntegration"]]},
     {
         "dt": "CRM Deal Status",
         "filters": [["name", "in", ["Payment Verfication", "In Trail"]]],
     },
-    "Territory",
-    "CRM Territory",
+    # {"dt": "Role", "filters": [["name", "in", "System User"]]},
+    # {"dt": "Custom DocPerm", "filters": [["role", "in", "System User"]]},
 ]

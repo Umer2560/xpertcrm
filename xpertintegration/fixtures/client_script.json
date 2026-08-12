@@ -1,0 +1,68 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "CRM Deal",
+  "enabled": 1,
+  "modified": "2026-08-12 12:30:58.652737",
+  "module": "XpertIntegration",
+  "name": "CRM Deal - Lock Won & Filter Plan",
+  "script": "frappe.ui.form.on(\"CRM Deal\", {\n  setup(frm) {\n    frm.set_query(\"custom_plan\", function () {\n      return {\n        filters: {\n          custom_project: frm.doc.custom_project || \"\",\n        },\n      };\n    });\n  },\n  refresh(frm) {\n    if (frm.doc.status === \"Won\") {\n      frm.set_read_only();\n      frm.disable_save();\n    }\n    frm.set_query(\"custom_plan\", function () {\n      return {\n        filters: {\n          custom_project: frm.doc.custom_project || \"\",\n        },\n      };\n    });\n  },\n  custom_project(frm) {\n    frm.set_value(\"custom_plan\", \"\");\n  }\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "CRM Lead",
+  "enabled": 1,
+  "modified": "2026-08-12 12:30:58.605899",
+  "module": "XpertIntegration",
+  "name": "CRM Lead - Filter Plan",
+  "script": "frappe.ui.form.on(\"CRM Lead\", {\n  setup(frm) {\n    frm.set_query(\"custom_plan\", function () {\n      return {\n        filters: {\n          custom_project: frm.doc.custom_project || \"\",\n        },\n      };\n    });\n  },\n  refresh(frm) {\n    frm.set_query(\"custom_plan\", function () {\n      return {\n        filters: {\n          custom_project: frm.doc.custom_project || \"\",\n        },\n      };\n    });\n  },\n  custom_project(frm) {\n    frm.set_value(\"custom_plan\", \"\");\n  }\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Customer",
+  "enabled": 1,
+  "modified": "2026-08-12 12:30:58.565416",
+  "module": "XpertIntegration",
+  "name": "Customer - Filter Plan",
+  "script": "frappe.ui.form.on(\"Customer\", {\n  setup(frm) {\n    frm.set_query(\"custom_plan\", function () {\n      return {\n        filters: {\n          custom_project: frm.doc.custom_project || \"\",\n        },\n      };\n    });\n  },\n  refresh(frm) {\n    frm.set_query(\"custom_plan\", function () {\n      return {\n        filters: {\n          custom_project: frm.doc.custom_project || \"\",\n        },\n      };\n    });\n  },\n  custom_project(frm) {\n    frm.set_value(\"custom_plan\", \"\");\n  }\n});",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Subscription Plan",
+  "enabled": 1,
+  "modified": "2026-08-12 12:30:58.539438",
+  "module": "XpertIntegration",
+  "name": "Subscription Plan",
+  "script": "frappe.ui.form.on('Subscription Plan', {\n\trefresh(frm) {\n        frm.set_query(\"add_on\", \"custom_addons\", function(doc, cdt, cdn) {\n            return {\n                filters: {\n                    custom_project: doc.custom_project,\n                    custom_active: 1,\n                    custom_subscription_type: \"Addons\"\n                }\n            };\n        });\n    }\n})",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "CRM Lead",
+  "enabled": 1,
+  "modified": "2026-08-12 12:30:58.507915",
+  "module": "XpertIntegration",
+  "name": "CRM Lead",
+  "script": "frappe.ui.form.on('CRM Lead', {\n\trefresh(frm) {\n        frm.set_query(\"add_on\", \"custom_addons_table\", function(doc, cdt, cdn) {\n            return {\n                filters: {\n                    custom_project: doc.custom_project,\n                    custom_active: 1,\n                    custom_subscription_type: \"Addons\"\n                }\n            };\n        });\n    }\n})",
+  "view": "Form"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "CRM Deal",
+  "enabled": 1,
+  "modified": "2026-08-12 12:31:26.219801",
+  "module": "XpertIntegration",
+  "name": "CRM Deal Grand Total",
+  "script": "frappe.ui.form.on(\"CRM Deal\", {\n    custom_sale_price: function(frm) {\n        calculate_custom_amount(frm);\n    },\n    custom_plan: function(frm) {\n        if (frm.doc.custom_plan) {\n            frappe.db.get_value(\"Subscription Plan\", frm.doc.custom_plan, \"cost\", function(r) {\n                if (r && r.cost !== undefined) {\n                    frm.set_value(\"custom_original_price\", r.cost);\n                }\n            });\n        }\n    }\n});\n\nfrappe.ui.form.on(\"Subscription Plan Add Ons\", {\n    amount: function(frm, cdt, cdn) {\n        calculate_custom_amount(frm);\n    },\n    custom_addons_table_remove: function(frm, cdt, cdn) {\n        calculate_custom_amount(frm);\n    }\n});\n\nfunction calculate_custom_amount(frm) {\n    let total = flt(frm.doc.custom_sale_price);\n    \n    if (frm.doc.custom_addons_table) {\n        $.each(frm.doc.custom_addons_table, function(i, row) {\n            total += flt(row.amount);\n        });\n    }\n    \n    frm.set_value(\"custom_amount\", total);\n}\n",
+  "view": "Form"
+ }
+]

@@ -2967,18 +2967,6 @@
   "docstatus": 0,
   "doctype": "Territory",
   "is_group": 0,
-  "modified": "2026-08-11 12:07:12.158615",
-  "name": "Sukkur",
-  "old_parent": "All Territories",
-  "parent_territory": "All Territories",
-  "targets": [],
-  "territory_manager": null,
-  "territory_name": "Sukkur"
- },
- {
-  "docstatus": 0,
-  "doctype": "Territory",
-  "is_group": 0,
   "modified": "2026-08-11 12:07:12.201077",
   "name": "Sultanpur Mor",
   "old_parent": "All Territories",
@@ -3339,13 +3327,13 @@
   "docstatus": 0,
   "doctype": "Territory",
   "is_group": 0,
-  "modified": "2026-08-11 12:07:07.362234",
-  "name": "Islamabad",
+  "modified": "2026-08-11 12:07:12.158615",
+  "name": "Sukkur",
   "old_parent": "All Territories",
   "parent_territory": "All Territories",
   "targets": [],
   "territory_manager": null,
-  "territory_name": "Islamabad"
+  "territory_name": "Sukkur"
  },
  {
   "docstatus": 0,
@@ -3358,5 +3346,17 @@
   "targets": [],
   "territory_manager": null,
   "territory_name": "All Territories"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Territory",
+  "is_group": 0,
+  "modified": "2026-08-11 12:07:07.362234",
+  "name": "Islamabad",
+  "old_parent": "All Territories",
+  "parent_territory": "All Territories",
+  "targets": [],
+  "territory_manager": null,
+  "territory_name": "Islamabad"
  }
 ]
