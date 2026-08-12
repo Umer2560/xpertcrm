@@ -870,6 +870,7 @@ def create_subscription(doc, method=None):
                 "submit_invoice": 1,
                 "status": "Active",
                 "custom_project_company": doc.custom_project_company,
+                "custom_project_subscription": deal_doc.custom_project if deal_doc else None,
             }
         )
         sub.insert(ignore_permissions=True)

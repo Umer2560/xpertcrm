@@ -86,11 +86,11 @@ apps/
 | `CRM Lead` | `after_insert` | `after_crm_lead_insert` | Creates a follow-up Task for the assigned owner. Auto-converts to Deal if `custom_company_code` is present. |
 | `CRM Deal` | `validate` | `validate_crm_deal` | Locks 'Won' deals, enforces mandatory payment fields, verifies project settings exist before win. |
 | `CRM Deal` | `after_insert` | `after_crm_deal_insert` | Creates a follow-up CRM Task. |
-| `CRM Deal` | `on_update` | `broadcast_crm_deal`, `handle_deal_payment_task` | Triggers broadcast if Deal is "In Trial" or has a payment. Creates Tasks for accountants to verify payments. |
+| `CRM Deal` | `on_update` | `broadcast_crm_deal` | Triggers broadcast if Deal is "In Trial" or has a payment. |
 | `Customer` | `before_insert` | `before_customer_insert`, `broadcast_customer_company` | Syncs fields from Deal. Validates if the project allows company creation via remote API (`broadcast_customer_company`). |
-| `Customer` | `after_insert` | `create_subscription` | Auto-creates a Subscription and Sales Invoice + Payment Entry based on CRM Deal parameters. |
-| `Subscription` | `on_update` | `broadcast_subscription_wrapper` | Syncs Subscription status to SaaS. |
-| `Sales Invoice` | `on_submit/update/change`| `broadcast_crm_document`, `update_deal_payment_status` | Pushes invoice data to SaaS. Updates CRM Deal payment status based on invoice status. |
+| `Customer` | `after_insert` | `create_subscription` | Auto-creates a Subscription (maps `custom_project_subscription` from the Deal) and Sales Invoice based on CRM Deal parameters. |
+| `Subscription` | `on_update` | `broadcast_subscription_wrapper` | Syncs Subscription status to SaaS, deriving company from mapped Project settings. |
+| `Sales Invoice` | `after_insert/on_submit/on_update/on_change`| `broadcast_crm_document`, `update_deal_payment_status` | Broadcasts to SaaS on submit/change. Updates CRM Deal payment status continuously across states. |
 
 ## CRM → SaaS Flow (Outbound)
 
@@ -113,6 +113,7 @@ apps/
    - Converts base64 file payloads into Frappe `File` DocTypes and links them.
    - Cleans child table internal IDs.
    - Resolves text names for `Project` and `Subscription Plan` links to local Frappe names.
+   - For `Customer` incoming payloads, dynamically maps the `company` field based on `custom_project` mappings.
 5. **Upsert**: Checks if the record exists via `name`. If it exists, calls `doc.update()`. Otherwise, `doc.insert()`. Sets `doc.flags.ignore_integration = True` to prevent an infinite broadcast loop.
 
 ## API Architecture & Clients
