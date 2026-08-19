@@ -20,7 +20,6 @@ def get_pending_deals():
             "custom_payment_date",
             "custom_due_date",
             "custom_paid_amount",
-            "custom_amount_received",
             "custom_mode_of_payment",
             "custom_account_paid_to",
         ],
@@ -43,7 +42,6 @@ def update_deal_status(name, status, remarks=None, amount_received=None, mode_of
         fields_to_update["custom_payment_remarks"] = remarks
 
     if amount_received is not None:
-        fields_to_update["custom_amount_received"] = amount_received
         fields_to_update["custom_paid_amount"] = amount_received
 
     if mode_of_payment:
