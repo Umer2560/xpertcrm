@@ -5586,7 +5586,7 @@
   "name": "CRM Deal-custom_payment_status",
   "no_copy": 0,
   "non_negative": 0,
-  "options": "\nCancelled\nCredit Note Issued\nDraft\nInternal Transfer\nOverdue\nOverdue and Discounted\nPaid\nPartly Paid\nPartly Paid and Discounted\nReturn\nSubmitted\nUnpaid\nUnpaid and Discounted\nVerify Payment",
+  "options": "\nUnpaid\nVerify Payment\nOverdue\nPaid\nPartly Paid\nReturn\nSubmitted\nCancelled",
   "permlevel": 0,
   "placeholder": null,
   "precision": "",
