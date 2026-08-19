@@ -149,12 +149,17 @@ doc_events = {
         "after_insert": "xpertintegration.api.integration.after_crm_lead_insert",
     },
     "CRM Deal": {
-        "validate": "xpertintegration.api.integration.validate_crm_deal",
+        "validate": [
+            "xpertintegration.api.integration.validate_crm_deal",
+            "xpertintegration.api.integration.broadcast_deal_company",
+        ],
         "after_insert": "xpertintegration.api.integration.after_crm_deal_insert",
         "on_update": [
             "xpertintegration.api.integration.broadcast_crm_deal",
-            # "xpertintegration.api.integration.handle_deal_payment_task",
+            "xpertintegration.api.integration.handle_deal_payment_task",
         ],
+        "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
+        "on_cancel": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Customer": {
         "before_insert": [
@@ -164,6 +169,7 @@ doc_events = {
         "after_insert": [
             "xpertintegration.api.integration.create_subscription",
         ],
+        "on_update": "xpertintegration.api.integration.broadcast_customer_company",
     },
     "Sales Invoice": {
         "before_insert": "xpertintegration.api.integration.validate_sales_invoice",
@@ -178,9 +184,17 @@ doc_events = {
             "xpertintegration.api.integration.broadcast_crm_document",
             "xpertintegration.api.integration.update_deal_payment_status",
         ],
+        "on_cancel": "xpertintegration.api.integration.broadcast_crm_document",
+        "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
+    },
+    "Payment Entry": {
+        "on_cancel": "xpertintegration.api.integration.broadcast_crm_document",
+        "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
     },
     "Subscription": {
+        "validate": "xpertintegration.api.integration.validate_subscription",
         "on_update": "xpertintegration.api.integration.broadcast_subscription_wrapper",
+        "on_change": "xpertintegration.api.integration.broadcast_subscription_wrapper",
     },
     "CRM Call Log": {
         "on_update": "xpertintegration.api.integration.update_lead_last_call_log"

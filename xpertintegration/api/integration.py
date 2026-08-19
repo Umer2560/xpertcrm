@@ -41,7 +41,6 @@ def get_lead_to_deal_mapping():
         {"source": "custom_assigned_to", "target": "custom_assigned_to"},
         {"source": "custom_remarks", "target": "custom_remarks"},
         {"source": "custom_company_code", "target": "custom_company_code"},
-        {"source": "company_code", "target": "company_code"},
         {"source": "custom_posting_date", "target": "custom_posting_date"},
         {"source": "custom_due_date", "target": "custom_due_date"},
         {"source": "custom_password", "target": "custom_password"},
@@ -65,7 +64,6 @@ def get_deal_win_validation_rules():
             "territory",
             "custom_sub_domain",
             "custom_plan",
-            "custom_password",
             "custom_activation_start_date",
             "custom_activation_end_date",
         ],
@@ -126,7 +124,13 @@ STATUS_ICONS = {
 # SECTION 2: UTILITY HELPERS
 def _safe_get_doc(doctype, name, log_title=None):
     try:
-        return frappe.get_doc(doctype, name)
+        doc = frappe.get_doc(doctype, name)
+        if doc and hasattr(doc, "reload"):
+            try:
+                doc.reload()
+            except Exception:
+                pass
+        return doc
     except frappe.DoesNotExistError:
         if log_title:
             get_integration_logger().warning(f"{log_title}: {doctype} {name} not found")
@@ -335,11 +339,32 @@ def send_api_request(
 
 # SECTION 4: VALIDATION ENGINE
 @frappe.whitelist()
+def validate_deal_minimum_cost(doc, method=None):
+    """
+    Validates that custom_sale_price of CRM Deal is not less than
+    the custom_minimum_cost of the linked Subscription Plan (custom_plan).
+    """
+    plan = doc.get("custom_plan")
+    if not plan:
+        return
+
+    minimum_cost = frappe.db.get_value("Subscription Plan", plan, "custom_minimum_cost")
+    if minimum_cost is not None and minimum_cost != "":
+        minimum_cost_val = flt(minimum_cost)
+        sale_price_val = flt(doc.get("custom_sale_price"))
+        if sale_price_val < minimum_cost_val:
+            frappe.throw(f"Sale price cannot be less than {minimum_cost_val}")
+
+
+@frappe.whitelist()
 def validate_crm_deal(doc, method=None):
     # 1. Auto-calculate amount
     doc.custom_amount = _compute_doc_amount(doc)
 
-    # 2. Lock Won deals
+    # 2. Minimum cost validation against subscription plan
+    validate_deal_minimum_cost(doc)
+
+    # 3. Lock Won deals
     if not doc.is_new():
         old_status = frappe.db.get_value("CRM Deal", doc.name, "status")
         if old_status == "Won":
@@ -347,8 +372,42 @@ def validate_crm_deal(doc, method=None):
                 "This Deal has already been marked as 'Won' and cannot be edited."
             )
 
-    # 3. Payment fields when company code exists
-    company_code = doc.get("custom_company_code") or doc.get("company_code")
+    # 4. AI Payment Proof extraction
+    # If payment proof is attached AND custom_paid_amount == 0 AND payment date & reference number are not defined
+    payment_proof = doc.get("custom_payment_proof")
+    paid_amount = flt(doc.get("custom_paid_amount"))
+    payment_date = doc.get("custom_payment_date")
+    ref_number = doc.get("custom_reference_number") or doc.get("custom_transaction_id")
+
+    print("\n" + "=" * 60)
+    print(f"[AI_DEBUG] validate_crm_deal called for Deal: {getattr(doc, 'name', 'New Deal')}")
+    print(f"[AI_DEBUG] custom_payment_proof: {payment_proof}")
+    print(f"[AI_DEBUG] custom_paid_amount: {paid_amount}")
+    print(f"[AI_DEBUG] custom_payment_date: {payment_date}")
+    print(f"[AI_DEBUG] custom_reference_number: {ref_number}")
+
+    if payment_proof and paid_amount == 0 and not payment_date and not ref_number:
+        print("[AI_DEBUG] => Conditions matched! Invoking AI payment proof extraction...")
+        try:
+            from xpertintegration.api.ai_analytics import payment_proof_analyzer
+            result = payment_proof_analyzer.process_deal_doc(doc)
+            print(f"[AI_DEBUG] Extraction result: {result}")
+        except Exception as e:
+            print(f"[AI_DEBUG] Exception during AI payment proof extraction: {e}")
+            frappe.log_error(
+                title=f"AI Payment Extraction Error for Deal {getattr(doc, 'name', 'New')}",
+                message=frappe.get_traceback(),
+            )
+    else:
+        print(f"[AI_DEBUG] => AI extraction skipped. Conditions: payment_proof={bool(payment_proof)}, paid_amount_is_zero={paid_amount == 0}, no_date={not payment_date}, no_ref={not ref_number}")
+    print("=" * 60 + "\n")
+
+    # 5. Payment status validation when status is Paid
+    if doc.get("custom_payment_status") == "Paid" and flt(doc.get("custom_paid_amount")) <= 0:
+        frappe.throw("Paid Amount must be greater than 0 when Payment Status is set to Paid.")
+
+    # 6. Payment fields when company code exists
+    company_code = doc.get("custom_company_code")
     if company_code and not doc.is_new():
         config = get_payment_validation_config()
         missing = [f for f in config["fields"] if not doc.get(f)]
@@ -356,15 +415,20 @@ def validate_crm_deal(doc, method=None):
             labels = [doc.meta.get_label(f) for f in missing]
             frappe.throw(config["error_message"].format(fields=", ".join(labels)))
 
-    # 4. Win conditions
+    # 7. Win conditions
     if doc.status == "Won":
         _validate_deal_win_conditions(doc)
 
-    # 5. Broadcast as Customer if In Trial
+    # 8. Broadcast as Customer if In Trial
     send_trial_deal_as_customer(doc)
 
 
 def _validate_deal_win_conditions(doc):
+    if doc.get("custom_payment_status") != "Paid":
+        frappe.throw(
+            "Payment Status must be 'Paid' before marking the deal as Won."
+        )
+
     project = doc.get("custom_project")
     project_label = doc.meta.get_label("custom_project") or "Project"
     if not project:
@@ -699,6 +763,101 @@ def broadcast_crm_deal(doc, method=None):
     broadcast_crm_document(doc, method)
 
 
+@frappe.whitelist()
+def broadcast_deal_company(doc, method=None):
+    try:
+        if isinstance(doc, str):
+            doc = frappe.parse_json(doc)
+
+        company_code = (
+            doc.get("custom_company_code")
+            if isinstance(doc, dict)
+            else getattr(doc, "custom_company_code", None)
+        )
+        if not company_code:
+            return
+
+        doc_name = (
+            doc.get("name") if isinstance(doc, dict) else getattr(doc, "name", None)
+        )
+        is_new = (
+            doc.get("__islocal") or not doc_name
+            if isinstance(doc, dict)
+            else (doc.is_new() if hasattr(doc, "is_new") else not doc_name)
+        )
+
+        if not is_new and doc_name:
+            db_company_code = frappe.db.get_value(
+                "CRM Deal", doc_name, "custom_company_code"
+            )
+            if db_company_code == company_code:
+                return
+
+        payload = frappe.parse_json(doc if isinstance(doc, dict) else doc.as_json())
+        payload["doctype"] = "Deal-Company"
+
+        project_val = (
+            doc.get("custom_project")
+            if isinstance(doc, dict)
+            else getattr(doc, "custom_project", None)
+        )
+
+        if not project_val:
+            return
+
+        project_id = (
+            frappe.db.get_value("Project", {"project_name": project_val}, "name")
+            or frappe.db.get_value("Project", project_val, "name")
+            or project_val
+        )
+        if not project_id:
+            return
+
+        project_name = (
+            frappe.db.get_value("Project", project_id, "project_name") or project_id
+        )
+
+        payload = _build_broadcast_payload(payload, project_id, project_name)
+        payload["doctype"] = "Deal-Company"
+
+        doc_name_label = doc_name or "New Deal"
+        target_url, headers = get_project_settings(project_id, throw=False)
+        if not target_url:
+            return
+
+        source_doctype = doc.get("doctype") if isinstance(doc, dict) else doc.doctype
+        response = send_api_request(
+            target_url,
+            headers,
+            payload,
+            source_doctype=source_doctype,
+            source_docname=doc_name_label,
+        )
+
+        if response.get("status") == "success":
+            data = response.get("data", {})
+            message = data.get("message", {})
+
+            callback_data = {}
+            if isinstance(message, dict):
+                callback_data = message.get("callback_data", {})
+
+            returned_company = callback_data.get("custom_company_code")
+            if not returned_company:
+                frappe.throw("Against this project no company found")
+        else:
+            comp_code = company_code
+            proj_code = project_val
+            frappe.throw(
+                f"Failed to verify company <b>{comp_code}</b> in project <b>{proj_code}</b>"
+            )
+    except Exception:
+        frappe.log_error(
+            title="Deal-Company Debug: Exception", message=frappe.get_traceback()
+        )
+        raise
+
+
 # SECTION 7: CUSTOMER & SUBSCRIPTION HOOKS
 @frappe.whitelist()
 def before_customer_insert(doc, method=None):
@@ -723,7 +882,7 @@ def before_customer_insert(doc, method=None):
         doc.mobile_no = deal.mobile_no
 
     if not doc.get("custom_project_company"):
-        code = deal.get("custom_company_code") or deal.get("company_code")
+        code = deal.get("custom_company_code")
         if code:
             doc.custom_project_company = code
 
@@ -731,10 +890,6 @@ def before_customer_insert(doc, method=None):
 @frappe.whitelist()
 def broadcast_customer_company(doc, method=None):
     try:
-        frappe.log_error(
-            title="Customer-Company Debug: Start",
-            message=f"Doc: {doc.name}, Company Code: {doc.get('custom_project_company')}",
-        )
 
         if doc.get("custom_project_company"):
             payload = frappe.parse_json(doc.as_json())
@@ -747,10 +902,7 @@ def broadcast_customer_company(doc, method=None):
                 )
 
             if not project_val:
-                frappe.log_error(
-                    title="Customer-Company Debug: Abort",
-                    message="No project_val found",
-                )
+
                 return
 
             project_id = (
@@ -759,10 +911,7 @@ def broadcast_customer_company(doc, method=None):
                 or project_val
             )
             if not project_id:
-                frappe.log_error(
-                    title="Customer-Company Debug: Abort",
-                    message=f"No project_id found for project_val: {project_val}",
-                )
+
                 return
 
             project_name = (
@@ -775,16 +924,8 @@ def broadcast_customer_company(doc, method=None):
             doc_name = doc.name or "New Customer"
             target_url, headers = get_project_settings(project_id, throw=False)
             if not target_url:
-                frappe.log_error(
-                    title="Customer-Company Debug: Abort",
-                    message=f"No target_url found for project: {project_id}",
-                )
-                return
 
-            frappe.log_error(
-                title="Customer-Company Debug: Request",
-                message=f"URL: {target_url}\nPayload: {payload}",
-            )
+                return
 
             response = send_api_request(
                 target_url,
@@ -792,10 +933,6 @@ def broadcast_customer_company(doc, method=None):
                 payload,
                 source_doctype=doc.doctype,
                 source_docname=doc_name,
-            )
-
-            frappe.log_error(
-                title="Customer-Company Debug: Response", message=str(response)
             )
 
             if response.get("status") == "success":
@@ -835,6 +972,8 @@ def create_subscription(doc, method=None):
         "Company"
     )
     start_date = doc.get("custom_activation_start_date")
+    # end_date = doc.get("custom_activation_end_date")
+
     start_dt = getdate(start_date or today())
     end_date = (start_dt + relativedelta(years=1)).strftime("%Y-%m-%d")
 
@@ -843,18 +982,46 @@ def create_subscription(doc, method=None):
         if doc.crm_deal:
             deal_doc = _safe_get_doc("CRM Deal", doc.crm_deal)
 
-        plan_entry = {"plan": doc.custom_plan, "qty": 1}
-        if deal_doc and deal_doc.get("custom_sale_price"):
-            plan_entry["custom_cost"] = deal_doc.custom_sale_price
+        original_price_sum = 0.0
+        sale_price_sum = 0.0
 
+        main_plan_orig = (
+            flt(deal_doc.get("custom_original_price"))
+            if deal_doc and deal_doc.get("custom_original_price")
+            else flt(frappe.db.get_value("Subscription Plan", doc.custom_plan, "cost"))
+        )
+        main_plan_sale = (
+            flt(deal_doc.get("custom_sale_price"))
+            if deal_doc and deal_doc.get("custom_sale_price") is not None
+            else main_plan_orig
+        )
+
+        original_price_sum += main_plan_orig
+        sale_price_sum += main_plan_sale
+
+        plan_entry = {"plan": doc.custom_plan, "qty": 1, "custom_cost": main_plan_sale}
         plans_list = [plan_entry]
 
         if deal_doc:
             for addon in deal_doc.get("custom_addons_table", []):
                 if addon.add_on:
-                    addon_entry = {"plan": addon.add_on, "qty": 1}
-                    if addon.get("amount"):
-                        addon_entry["custom_cost"] = addon.amount
+                    addon_orig = flt(
+                        frappe.db.get_value("Subscription Plan", addon.add_on, "cost")
+                    )
+                    addon_sale = (
+                        flt(addon.amount)
+                        if addon.get("amount") is not None
+                        else addon_orig
+                    )
+
+                    original_price_sum += addon_orig
+                    sale_price_sum += addon_sale
+
+                    addon_entry = {
+                        "plan": addon.add_on,
+                        "qty": 1,
+                        "custom_cost": addon_sale,
+                    }
                     plans_list.append(addon_entry)
 
         sub = frappe.get_doc(
@@ -866,11 +1033,16 @@ def create_subscription(doc, method=None):
                 "plans": plans_list,
                 "start_date": start_date or today(),
                 "end_date": end_date,
-                "generate_invoice_at": "Beginning of the current subscription period",
+                "generate_invoice_at": "Days before the current subscription period",
+                "number_of_days": 5,
                 "submit_invoice": 1,
                 "status": "Active",
+                "custom_cost": original_price_sum,
+                "custom_amount_paid": sale_price_sum,
                 "custom_project_company": doc.custom_project_company,
-                "custom_project_subscription": deal_doc.custom_project if deal_doc else None,
+                "custom_project_subscription": (
+                    deal_doc.custom_project_subscription if deal_doc else None
+                ),
             }
         )
         sub.insert(ignore_permissions=True)
@@ -901,6 +1073,15 @@ def create_subscription(doc, method=None):
                     pe = get_payment_entry("Sales Invoice", inv_name, bank_account=None)
                     pe.paid_amount = paid_amount
                     pe.received_amount = paid_amount
+
+                    if deal_doc.get("custom_mode_of_payment"):
+                        pe.mode_of_payment = deal_doc.custom_mode_of_payment
+                    if deal_doc.get("custom_reference_number"):
+                        pe.reference_no = deal_doc.custom_reference_number
+                    if deal_doc.get("custom_payment_date"):
+                        pe.reference_date = deal_doc.custom_payment_date
+                    if deal_doc.get("custom_account_paid_to"):
+                        pe.paid_to = deal_doc.custom_account_paid_to
 
                     for ref in pe.references:
                         if ref.reference_name == inv_name:
@@ -1087,15 +1268,27 @@ def process_incoming_integration_payload(payload=None):
 
         if existing:
             doc = frappe.get_doc(target_doctype, existing)
+            try:
+                doc.reload()
+            except Exception:
+                pass
             doc.update(doc_fields)
             doc.flags.ignore_integration = True
             doc.save(ignore_permissions=True)
+            try:
+                doc.reload()
+            except Exception:
+                pass
             action = "updated"
         else:
             doc_fields["doctype"] = target_doctype
             doc = frappe.get_doc(doc_fields)
             doc.flags.ignore_integration = True
             doc.insert(ignore_permissions=True)
+            try:
+                doc.reload()
+            except Exception:
+                pass
             action = "created"
 
         # NOTE: Removed manual frappe.db.commit(). Frappe handles transactions.
@@ -1174,6 +1367,13 @@ def broadcast_crm_document(doc, method=None):
         party_type = payload.get("party_type")
         if party and party_type == "Customer":
             project_val = frappe.db.get_value("Customer", party, "custom_project")
+            if project_val:
+                payload["custom_project"] = project_val
+
+    if not project_val and my_doctype == "Sales Invoice":
+        customer = payload.get("customer")
+        if customer:
+            project_val = frappe.db.get_value("Customer", customer, "custom_project")
             if project_val:
                 payload["custom_project"] = project_val
 
@@ -1353,16 +1553,33 @@ def broadcast_delete_crm_document(doc, method=None):
     payload = _build_broadcast_payload(doc, project_id, project_name)
     payload["integration_action"] = "delete"
 
-    # Send synchronously so we can block the local deletion if it fails remotely
-    target_url, headers = get_project_settings(project_id, throw=False)
-    if not target_url:
-        logger.warning(
-            f"No project settings for {project_id}, aborting delete broadcast"
-        )
-        return
-
     try:
-        response = send_api_request(target_url, headers, payload, my_doctype, doc_name)
+        frappe.enqueue(
+            "xpertintegration.api.integration._execute_broadcast_delete",
+            queue="long",
+            payload=payload,
+            doctype=my_doctype,
+            docname=doc_name,
+            project_id=project_id,
+        )
+    except Exception:
+        frappe.log_error(
+            title=f"Delete Broadcast Enqueue Failed: {my_doctype} {doc_name}",
+            message=frappe.get_traceback(),
+        )
+
+
+def _execute_broadcast_delete(payload, doctype, docname, project_id):
+    logger = get_integration_logger()
+    try:
+        target_url, headers = get_project_settings(project_id, throw=False)
+        if not target_url:
+            logger.warning(
+                f"No project settings for {project_id}, aborting delete broadcast"
+            )
+            return
+
+        response = send_api_request(target_url, headers, payload, doctype, docname)
         if response.get("status") == "failed":
             error_data = {}
             error_str = response.get("error", "{}")
@@ -1373,15 +1590,15 @@ def broadcast_delete_crm_document(doc, method=None):
                     pass
 
             exc = error_data.get("exc", "")
-            # Try to identify LinkExistsError
             if (
                 "LinkExistsError" in exc
                 or error_data.get("exc_type") == "LinkExistsError"
             ):
-                frappe.throw(
-                    f"Cannot delete '{doc_name}' because it is in use in the POS system.",
-                    exc=frappe.LinkExistsError,
+                error_msg = (
+                    f"Cannot delete '{docname}' because it is in use in the POS system."
                 )
+            else:
+                error_msg = f"Failed to delete in remote POS system. Error: {error_str}"
 
             server_messages = error_data.get("_server_messages")
             if server_messages:
@@ -1391,24 +1608,57 @@ def broadcast_delete_crm_document(doc, method=None):
                     messages = ast.literal_eval(server_messages)
                     if messages and isinstance(messages, list):
                         msg_dict = json.loads(messages[0])
-                        frappe.throw(f"Remote POS Error: {msg_dict.get('message')}")
+                        error_msg = f"Remote POS Error: {msg_dict.get('message')}"
                 except Exception:
-                    frappe.throw(f"Remote POS Error: {server_messages}")
+                    error_msg = f"Remote POS Error: {server_messages}"
 
-            frappe.throw(f"Failed to delete in remote POS system. Error: {error_str}")
+            frappe.log_error(
+                title=f"Remote Delete Failed: {doctype} {docname}",
+                message=error_msg,
+            )
 
-    except Exception as e:
-        if isinstance(e, frappe.exceptions.ValidationError):
-            raise
+    except Exception:
         frappe.log_error(
-            title=f"Delete Broadcast Failed: {my_doctype} {doc_name}",
+            title=f"Delete Broadcast Execution Failed: {doctype} {docname}",
             message=frappe.get_traceback(),
         )
-        frappe.throw(f"Failed to synchronize deletion with POS system: {str(e)}")
 
 
 # SECTION 11: CUSTOM SUBSCRIPTION
+@frappe.whitelist()
+def validate_subscription(doc, method=None):
+    total_original_cost = 0.0
+    total_custom_cost = 0.0
+
+    if hasattr(doc, "plans") and doc.plans:
+        for plan_row in doc.plans:
+            if not plan_row.plan:
+                continue
+
+            plan_orig_cost = flt(
+                frappe.db.get_value("Subscription Plan", plan_row.plan, "cost")
+            )
+            qty = flt(getattr(plan_row, "qty", 1) or 1)
+            total_original_cost += plan_orig_cost * qty
+
+            if (
+                getattr(plan_row, "custom_cost", None) is None
+                or getattr(plan_row, "custom_cost", "") == ""
+            ):
+                plan_row.custom_cost = plan_orig_cost
+
+            total_custom_cost += flt(plan_row.custom_cost) * qty
+
+    doc.custom_amount_paid = total_custom_cost
+    if not getattr(doc, "custom_cost", None):
+        doc.custom_cost = total_original_cost
+
+
 class CustomSubscription(Subscription):
+    def validate(self):
+        super().validate()
+        validate_subscription(self)
+
     def get_items_from_plans(self, plans, prorate=0):
         if not plans:
             return []

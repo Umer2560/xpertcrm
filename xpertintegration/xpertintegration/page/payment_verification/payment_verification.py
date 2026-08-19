@@ -20,6 +20,9 @@ def get_pending_deals():
             "custom_payment_date",
             "custom_due_date",
             "custom_paid_amount",
+            "custom_amount_received",
+            "custom_mode_of_payment",
+            "custom_account_paid_to",
         ],
         limit=100,
     )
@@ -34,17 +37,35 @@ def get_pending_deals():
 
 
 @frappe.whitelist()
-def update_deal_status(name, status, remarks=None):
+def update_deal_status(name, status, remarks=None, amount_received=None, mode_of_payment=None, account_paid_to=None):
     fields_to_update = {"custom_payment_status": status}
     if remarks:
         fields_to_update["custom_payment_remarks"] = remarks
+
+    if amount_received is not None:
+        fields_to_update["custom_amount_received"] = amount_received
+        fields_to_update["custom_paid_amount"] = amount_received
+
+    if mode_of_payment:
+        fields_to_update["custom_mode_of_payment"] = mode_of_payment
+
+    if account_paid_to:
+        fields_to_update["custom_account_paid_to"] = account_paid_to
 
     if status == "Paid":
         fields_to_update["status"] = "Won"
 
     doc = frappe.get_doc("CRM Deal", name)
+    try:
+        doc.reload()
+    except Exception:
+        pass
     doc.update(fields_to_update)
     doc.save(ignore_permissions=True)
+    try:
+        doc.reload()
+    except Exception:
+        pass
     if status == "Paid":
         try:
             from crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings import (

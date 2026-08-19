@@ -91,6 +91,16 @@
 
             <!-- Action Column -->
             <div class="pv-col-action">
+                <label class="pv-action-label">AMOUNT RECEIVED</label>
+                <input type="number" class="form-control amount-received-input mb-3" 
+                       value="{{ row.custom_amount_received || row.custom_paid_amount || row.custom_amount }}" />
+
+                <label class="pv-action-label">MODE OF PAYMENT</label>
+                <div class="pv-mode-of-payment-control mb-3" data-value="{{ row.custom_mode_of_payment || "" }}"></div>
+
+                <label class="pv-action-label">ACCOUNT PAID TO</label>
+                <div class="pv-account-paid-to-control mb-3" data-value="{{ row.custom_account_paid_to || "" }}"></div>
+
                 <label class="pv-action-label">VERIFIED THROUGH</label>
 
                 <select class="form-control action-select pv-select mb-3">
