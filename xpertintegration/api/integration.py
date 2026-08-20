@@ -735,6 +735,8 @@ def validate_crm_deal(doc, method=None):
 
     # 7. Trial & Win conditions
     if doc.status == "Won":
+        if doc.is_new():
+            frappe.throw(_("A new CRM Deal cannot be set to 'Won'."))
         if doc.get("custom_payment_status") != "Paid":
             frappe.throw("Payment Status must be 'Paid' before marking the deal as Won.")
         _validate_deal_trial_or_win_conditions(doc, is_won=True)
