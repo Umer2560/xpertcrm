@@ -6,6 +6,7 @@ import os
 import requests
 
 import frappe
+from frappe import _
 from frappe.utils import (
     cint,
     flt,
@@ -28,6 +29,97 @@ from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
 # SECTION 1: DYNAMIC CONFIGURATION
 def get_integration_logger():
     return frappe.logger("xpertintegration")
+
+
+def create_integration_log(
+    status="Success",
+    direction="Outbound",
+    trigger_source="DocType Hook",
+    reference_doctype=None,
+    reference_name=None,
+    company_code=None,
+    http_method="POST",
+    endpoint_url=None,
+    response_code=None,
+    request_headers=None,
+    request_payload=None,
+    response_payload=None,
+    error_traceback=None,
+    remarks=None,
+    execution_time=None,
+):
+    """
+    Creates an Integration Log entry to track all sync steps, payloads, responses, and errors.
+    """
+    try:
+
+        def _serialize(data):
+            if data is None:
+                return None
+            if isinstance(data, (dict, list)):
+                try:
+                    return json.dumps(data, indent=2, default=str)
+                except Exception:
+                    return str(data)
+            return str(data)
+
+        user = "Administrator"
+        try:
+            if frappe.session and getattr(frappe.session, "user", None):
+                user = frappe.session.user
+        except Exception:
+            pass
+
+        log_doc = frappe.get_doc(
+            {
+                "doctype": "Integration Log",
+                "status": status,
+                "direction": direction,
+                "trigger_source": trigger_source,
+                "execution_time": flt(execution_time) if execution_time else None,
+                "reference_doctype": reference_doctype,
+                "reference_name": reference_name,
+                "company_code": company_code,
+                "http_method": http_method,
+                "endpoint_url": endpoint_url,
+                "response_code": response_code,
+                "triggered_by": user,
+                "request_headers": _serialize(request_headers),
+                "request_payload": _serialize(request_payload),
+                "response_payload": _serialize(response_payload),
+                "error_traceback": error_traceback,
+                "remarks": remarks,
+            }
+        )
+        log_doc.flags.ignore_permissions = True
+        log_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return log_doc.name
+    except Exception as e:
+        get_integration_logger().error(f"Failed to create Integration Log: {str(e)}")
+        return None
+
+
+def log_integration_error(
+    title, message=None, reference_doctype=None, reference_name=None, company_code=None
+):
+    """
+    Logs errors into Integration Log instead of frappe.error_log.
+    """
+    trace = message if message else frappe.get_traceback()
+    try:
+        create_integration_log(
+            status="Failed",
+            direction="Outbound",
+            trigger_source="DocType Hook",
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+            company_code=company_code,
+            error_traceback=trace,
+            remarks=title,
+        )
+    except Exception as e:
+        get_integration_logger().error(f"{title}: {trace} (Meta error: {str(e)})")
 
 
 def get_lead_to_deal_mapping():
@@ -137,7 +229,7 @@ def _safe_get_doc(doctype, name, log_title=None):
         return None
     except Exception:
         if log_title:
-            frappe.log_error(title=log_title, message=frappe.get_traceback())
+            log_integration_error(title=log_title, message=frappe.get_traceback())
         return None
 
 
@@ -295,6 +387,15 @@ def send_api_request(
     target_url, headers, payload, source_doctype=None, source_docname=None
 ):
     logger = get_integration_logger()
+    import time
+
+    start_time = time.time()
+    res_code = None
+    resp_payload = None
+    status = "Success"
+    err_trace = None
+    remarks = None
+
     try:
         response = requests.post(
             target_url,
@@ -302,42 +403,229 @@ def send_api_request(
             json={"payload": payload},
             timeout=60,
         )
+        res_code = response.status_code
         response.raise_for_status()
 
         try:
             resp_json = response.json()
+            resp_payload = resp_json
             if source_doctype and source_docname and isinstance(resp_json, dict):
                 callback_data = resp_json.get("message", {}).get("callback_data")
                 if isinstance(callback_data, dict):
                     frappe.db.set_value(source_doctype, source_docname, callback_data)
-                    # NOTE: Removed manual frappe.db.commit() — let Frappe handle the transaction boundary.
-            return {"status": "success", "data": resp_json}
+            ret_val = {"status": "success", "data": resp_json}
         except ValueError:
-            return {"status": "success", "text": response.text}
+            resp_payload = response.text
+            ret_val = {"status": "success", "text": response.text}
 
     except requests.exceptions.HTTPError:
+        status = "Failed"
+        res_code = getattr(response, "status_code", 500)
+        resp_payload = getattr(response, "text", "")
         err_msg = (
-            f"HTTP Error {response.status_code} from {target_url}\n"
-            f"Response: {response.text}\n"
+            f"HTTP Error {res_code} from {target_url}\n"
+            f"Response: {resp_payload}\n"
             f"Payload: {json.dumps(payload, default=str)}"
         )
         logger.error(err_msg)
-        return {
+        err_trace = frappe.get_traceback()
+        remarks = f"HTTP Error {res_code}"
+        ret_val = {
             "status": "failed",
-            "error": response.text,
-            "status_code": response.status_code,
+            "error": resp_payload,
+            "status_code": res_code,
         }
     except requests.exceptions.RequestException as e:
+        status = "Failed"
         err_msg = (
             f"Network Exception connecting to {target_url}\n"
             f"Error: {str(e)}\n"
             f"Payload: {json.dumps(payload, default=str)}"
         )
         logger.error(err_msg)
-        return {"status": "failed", "error": str(e)}
+        err_trace = frappe.get_traceback()
+        remarks = f"Network Exception: {str(e)}"
+        ret_val = {"status": "failed", "error": str(e)}
+
+    exec_time = round(time.time() - start_time, 3)
+
+    create_integration_log(
+        status=status,
+        direction="Outbound",
+        trigger_source="DocType Hook",
+        reference_doctype=source_doctype
+        or (payload.get("doctype") if isinstance(payload, dict) else None),
+        reference_name=source_docname
+        or (payload.get("name") if isinstance(payload, dict) else None),
+        company_code=(
+            payload.get("custom_company_code") if isinstance(payload, dict) else None
+        ),
+        http_method="POST",
+        endpoint_url=target_url,
+        response_code=res_code,
+        request_headers=headers,
+        request_payload=payload,
+        response_payload=resp_payload,
+        error_traceback=err_trace,
+        remarks=remarks or f"API Broadcast {status}",
+        execution_time=exec_time,
+    )
+
+    return ret_val
 
 
 # SECTION 4: VALIDATION ENGINE
+def _normalize_project_id(project_val):
+    if not project_val:
+        return ""
+    proj_id = (
+        frappe.db.get_value("Project", {"project_name": project_val}, "name")
+        or frappe.db.get_value("Project", project_val, "name")
+        or project_val
+    )
+    return str(proj_id).strip()
+
+
+def get_doc_project(doc):
+    """
+    Returns the project associated with the given document, checking doc fields
+    and linked parent entities (Lead, Customer, User, etc.) as fallbacks.
+    """
+    project = (
+        doc.get("custom_project")
+        or doc.get("project")
+        or doc.get("custom_project_subscription")
+    )
+    if project:
+        return project
+
+    if doc.doctype == "CRM Deal":
+        if doc.get("lead"):
+            project = frappe.db.get_value("CRM Lead", doc.lead, "custom_project")
+        if not project and doc.get("customer"):
+            project = frappe.db.get_value("Customer", doc.customer, "custom_project")
+    elif doc.doctype == "Subscription":
+        if doc.get("party_type") == "Customer" and doc.get("party"):
+            project = frappe.db.get_value("Customer", doc.party, "custom_project")
+    elif doc.doctype == "Sales Invoice":
+        if doc.get("customer"):
+            project = frappe.db.get_value("Customer", doc.customer, "custom_project")
+        if not project and doc.get("custom_crm_deal"):
+            project = frappe.db.get_value("CRM Deal", doc.custom_crm_deal, "custom_project")
+
+    return project
+
+
+@frappe.whitelist()
+def validate_plan_project_matching(doc, method=None):
+    """
+    Validates that:
+    1. Main subscription plan (custom_plan or Subscription plans table) belongs to the SAME project
+       as the document (CRM Deal, CRM Lead, Customer, Subscription, Sales Invoice).
+    2. Main subscription plan is of type 'Plan' (not 'Addons').
+    3. Add-on items in custom_addons_table belong to the SAME project and are of type 'Addons'.
+    """
+    doc_project = get_doc_project(doc)
+    norm_doc_project = _normalize_project_id(doc_project)
+
+    # Validate main plan in `custom_plan` field
+    main_plan = doc.get("custom_plan")
+    if main_plan:
+        plan_meta = frappe.db.get_value(
+            "Subscription Plan",
+            main_plan,
+            ["custom_project", "custom_subscription_type", "plan_name"],
+            as_dict=True,
+        )
+        if plan_meta:
+            plan_project = plan_meta.get("custom_project")
+            norm_plan_project = _normalize_project_id(plan_project)
+            sub_type = plan_meta.get("custom_subscription_type")
+
+            if sub_type == "Addons":
+                frappe.throw(
+                    f"Selected Subscription Plan '{main_plan}' is an Addon. Only subscription plans (Type 'Plan') can be selected as the main plan."
+                )
+
+            if norm_doc_project and norm_plan_project and norm_doc_project != norm_plan_project:
+                frappe.throw(
+                    f"The selected Subscription Plan '{main_plan}' belongs to project '{plan_project}', "
+                    f"which does not match the project '{doc_project}' of this {doc.doctype}."
+                )
+            elif not norm_doc_project and norm_plan_project:
+                frappe.throw(
+                    f"Please select or assign Project '{plan_project}' to this {doc.doctype} before choosing Subscription Plan '{main_plan}'."
+                )
+
+    # Validate plans in Subscription doctype `plans` child table
+    if doc.doctype == "Subscription" and doc.get("plans"):
+        main_plan_count = 0
+        for plan_row in doc.plans:
+            if not plan_row.plan:
+                continue
+            plan_meta = frappe.db.get_value(
+                "Subscription Plan",
+                plan_row.plan,
+                ["custom_project", "custom_subscription_type", "plan_name"],
+                as_dict=True,
+            )
+            if plan_meta:
+                plan_project = plan_meta.get("custom_project")
+                norm_plan_project = _normalize_project_id(plan_project)
+                sub_type = plan_meta.get("custom_subscription_type")
+
+                if sub_type != "Addons":
+                    main_plan_count += 1
+
+                if norm_doc_project and norm_plan_project and norm_doc_project != norm_plan_project:
+                    frappe.throw(
+                        f"Subscription Plan '{plan_row.plan}' (row #{plan_row.idx}) belongs to project '{plan_project}', "
+                        f"which does not match the project '{doc_project}' of this Subscription."
+                    )
+                elif not norm_doc_project and norm_plan_project:
+                    frappe.throw(
+                        f"Please assign Project '{plan_project}' to this Subscription before choosing Subscription Plan '{plan_row.plan}'."
+                    )
+
+        if main_plan_count > 1:
+            frappe.throw(
+                f"Only one main plan (Type 'Plan') can be added to a Subscription. Found {main_plan_count} main plans in the plans table."
+            )
+
+    # Validate add-ons in `custom_addons_table` (CRM Deal / CRM Lead)
+    if doc.get("custom_addons_table"):
+        for addon_row in doc.custom_addons_table:
+            addon_name = addon_row.get("add_on")
+            if not addon_name:
+                continue
+            addon_meta = frappe.db.get_value(
+                "Subscription Plan",
+                addon_name,
+                ["custom_project", "custom_subscription_type", "plan_name"],
+                as_dict=True,
+            )
+            if addon_meta:
+                addon_project = addon_meta.get("custom_project")
+                norm_addon_project = _normalize_project_id(addon_project)
+                sub_type = addon_meta.get("custom_subscription_type")
+
+                if sub_type and sub_type != "Addons":
+                    frappe.throw(
+                        f"Add-on '{addon_name}' (row #{addon_row.idx}) is of type '{sub_type}'. "
+                        f"Only 'Addons' type plans can be added to the Add-ons table."
+                    )
+
+                if norm_doc_project and norm_addon_project and norm_doc_project != norm_addon_project:
+                    frappe.throw(
+                        f"Add-on '{addon_name}' (row #{addon_row.idx}) belongs to project '{addon_project}', "
+                        f"which does not match the project '{doc_project}' of this {doc.doctype}."
+                    )
+                elif not norm_doc_project and norm_addon_project:
+                    frappe.throw(
+                        f"Please assign Project '{addon_project}' to this {doc.doctype} before choosing Add-on '{addon_name}'."
+                    )
+
+
 @frappe.whitelist()
 def validate_deal_minimum_cost(doc, method=None):
     """
@@ -358,6 +646,22 @@ def validate_deal_minimum_cost(doc, method=None):
 
 @frappe.whitelist()
 def validate_crm_deal(doc, method=None):
+    # 0. Validate project and subscription plan matching
+    validate_plan_project_matching(doc)
+
+    # Unique company code check for CRM Deal
+    company_code = (doc.get("custom_company_code") or "").strip()
+    if company_code:
+        filters = [["custom_company_code", "=", company_code]]
+        if not doc.is_new() and doc.name:
+            filters.append(["name", "!=", doc.name])
+
+        existing_deal = frappe.db.exists("CRM Deal", filters)
+        if existing_deal:
+            frappe.throw(
+                _(f"A CRM Deal with Company Code '{company_code}' already exists ({existing_deal}).")
+            )
+
     # 1. Auto-calculate amount
     doc.custom_amount = _compute_doc_amount(doc)
 
@@ -380,31 +684,45 @@ def validate_crm_deal(doc, method=None):
     ref_number = doc.get("custom_reference_number") or doc.get("custom_transaction_id")
 
     print("\n" + "=" * 60)
-    print(f"[AI_DEBUG] validate_crm_deal called for Deal: {getattr(doc, 'name', 'New Deal')}")
+    print(
+        f"[AI_DEBUG] validate_crm_deal called for Deal: {getattr(doc, 'name', 'New Deal')}"
+    )
     print(f"[AI_DEBUG] custom_payment_proof: {payment_proof}")
     print(f"[AI_DEBUG] custom_paid_amount: {paid_amount}")
     print(f"[AI_DEBUG] custom_payment_date: {payment_date}")
     print(f"[AI_DEBUG] custom_reference_number: {ref_number}")
 
     if payment_proof and paid_amount == 0 and not payment_date and not ref_number:
-        print("[AI_DEBUG] => Conditions matched! Invoking AI payment proof extraction...")
+        print(
+            "[AI_DEBUG] => Conditions matched! Invoking AI payment proof extraction..."
+        )
         try:
             from xpertintegration.api.ai_analytics import payment_proof_analyzer
+
             result = payment_proof_analyzer.process_deal_doc(doc)
             print(f"[AI_DEBUG] Extraction result: {result}")
         except Exception as e:
             print(f"[AI_DEBUG] Exception during AI payment proof extraction: {e}")
-            frappe.log_error(
+            log_integration_error(
                 title=f"AI Payment Extraction Error for Deal {getattr(doc, 'name', 'New')}",
                 message=frappe.get_traceback(),
+                reference_doctype="CRM Deal",
+                reference_name=getattr(doc, "name", None),
             )
     else:
-        print(f"[AI_DEBUG] => AI extraction skipped. Conditions: payment_proof={bool(payment_proof)}, paid_amount_is_zero={paid_amount == 0}, no_date={not payment_date}, no_ref={not ref_number}")
+        print(
+            f"[AI_DEBUG] => AI extraction skipped. Conditions: payment_proof={bool(payment_proof)}, paid_amount_is_zero={paid_amount == 0}, no_date={not payment_date}, no_ref={not ref_number}"
+        )
     print("=" * 60 + "\n")
 
     # 5. Payment status validation when status is Paid
-    if doc.get("custom_payment_status") == "Paid" and flt(doc.get("custom_paid_amount")) <= 0:
-        frappe.throw("Paid Amount must be greater than 0 when Payment Status is set to Paid.")
+    if (
+        doc.get("custom_payment_status") == "Paid"
+        and flt(doc.get("custom_paid_amount")) <= 0
+    ):
+        frappe.throw(
+            "Paid Amount must be greater than 0 when Payment Status is set to Paid."
+        )
 
     # 6. Payment fields when company code exists
     company_code = doc.get("custom_company_code")
@@ -415,32 +733,31 @@ def validate_crm_deal(doc, method=None):
             labels = [doc.meta.get_label(f) for f in missing]
             frappe.throw(config["error_message"].format(fields=", ".join(labels)))
 
-    # 7. Win conditions
+    # 7. Trial & Win conditions
     if doc.status == "Won":
-        _validate_deal_win_conditions(doc)
+        if doc.get("custom_payment_status") != "Paid":
+            frappe.throw("Payment Status must be 'Paid' before marking the deal as Won.")
+        _validate_deal_trial_or_win_conditions(doc, is_won=True)
+    elif doc.status == "In Trial":
+        _validate_deal_trial_or_win_conditions(doc, is_won=False)
 
     # 8. Broadcast as Customer if In Trial
     send_trial_deal_as_customer(doc)
 
 
-def _validate_deal_win_conditions(doc):
-    if doc.get("custom_payment_status") != "Paid":
-        frappe.throw(
-            "Payment Status must be 'Paid' before marking the deal as Won."
-        )
+def _validate_deal_trial_or_win_conditions(doc, is_won=False):
+    action_text = "winning the deal" if is_won else "changing the status to In Trial"
 
     project = doc.get("custom_project")
     project_label = doc.meta.get_label("custom_project") or "Project"
     if not project:
         frappe.throw(
-            f"Please fill the following mandatory fields before winning the deal: {project_label}"
+            f"Please fill the following mandatory fields before {action_text}: {project_label}"
         )
 
     # Validate project settings exist and are complete
     target_url, headers = get_project_settings(project, throw=False)
     if not target_url:
-        # Settings incomplete — get_project_settings already threw or returned None.
-        # We do a soft check here to give a cleaner message.
         setting = frappe.db.get_value(
             "XpertIntegration Setting Table",
             {"project": project},
@@ -474,26 +791,20 @@ def _validate_deal_win_conditions(doc):
     missing_fields = [f for f in rules["mandatory_fields"] if not doc.get(f)]
     if missing_fields:
         labels = [doc.meta.get_label(f) for f in missing_fields]
-        frappe.throw(rules["error_message"].format(fields=", ".join(labels)))
+        frappe.throw(f"Please fill the following mandatory fields before {action_text}: {', '.join(labels)}")
+
+    # Company Code & Payment fields check if custom_company_code exists
+    company_code = doc.get("custom_company_code")
+    if company_code:
+        config = get_payment_validation_config()
+        missing = [f for f in config["fields"] if not doc.get(f)]
+        if missing:
+            labels = [doc.meta.get_label(f) for f in missing]
+            frappe.throw(config["error_message"].format(fields=", ".join(labels)))
 
 
 def send_trial_deal_as_customer(doc):
     if doc.status == "In Trial" and not doc.get("custom_company_code"):
-        # Validate fields before proceeding
-        project_label = doc.meta.get_label("custom_project") or "Project"
-        if not doc.get("custom_project"):
-            frappe.throw(
-                f"Please fill the following mandatory fields before changing the status to In Trial: {project_label}"
-            )
-
-        rules = get_deal_win_validation_rules()
-        missing_fields = [f for f in rules["mandatory_fields"] if not doc.get(f)]
-        if missing_fields:
-            labels = [doc.meta.get_label(f) for f in missing_fields]
-            frappe.throw(
-                f"Please fill the following mandatory fields before changing the status to In Trial: {', '.join(labels)}"
-            )
-
         payload = frappe.parse_json(doc.as_json())
         payload["doctype"] = "Customer"
 
@@ -527,14 +838,32 @@ def send_trial_deal_as_customer(doc):
                 source_docname=doc.name,
             )
         except Exception:
-            frappe.log_error(
+            log_integration_error(
                 title=f"Broadcast Enqueue Failed: {doc.doctype} {doc.name} as Customer",
                 message=frappe.get_traceback(),
+                reference_doctype=doc.doctype,
+                reference_name=doc.name,
             )
 
 
 @frappe.whitelist()
 def validate_crm_fields(doc, method=None):
+    # Validate project and subscription plan matching
+    validate_plan_project_matching(doc)
+
+    # Unique company code check for CRM Lead
+    company_code = (doc.get("custom_company_code") or "").strip()
+    if company_code:
+        filters = [["custom_company_code", "=", company_code]]
+        if not doc.is_new() and doc.name:
+            filters.append(["name", "!=", doc.name])
+
+        existing_lead = frappe.db.exists("CRM Lead", filters)
+        if existing_lead:
+            frappe.throw(
+                _(f"A CRM Lead with Company Code '{company_code}' already exists ({existing_lead}).")
+            )
+
     # Duplicate company check
     if doc.is_new() and doc.get("organization"):
         existing = frappe.db.exists("Customer", {"customer_name": doc.organization})
@@ -542,22 +871,6 @@ def validate_crm_fields(doc, method=None):
             frappe.throw(
                 f"A Customer with the company name '{doc.organization}' already exists in the system."
             )
-
-    # Mobile validation
-    if doc.get("mobile_no"):
-        config = get_mobile_validation_config()
-        mobile_str = str(doc.mobile_no).strip()
-        if not re.match(config["regex"], mobile_str):
-            frappe.throw(config["error_message"])
-
-        if config.get("check_duplicate"):
-            existing = frappe.db.exists(
-                "CRM Lead", {"mobile_no": mobile_str, "name": ("!=", doc.name)}
-            )
-            if existing:
-                frappe.throw(
-                    f"A Lead with this mobile number already exists ({existing})."
-                )
 
     # Referral code resolution
     ref_code = doc.get("custom_referral_code") or doc.get("referral_code")
@@ -567,6 +880,104 @@ def validate_crm_fields(doc, method=None):
         )
         if user_with_code:
             doc.lead_owner = user_with_code
+
+
+@frappe.whitelist()
+def check_mobile_number_exists(mobile_no, lead_id=None):
+    if not mobile_no:
+        return {"exists": False}
+
+    raw_mobile = str(mobile_no).strip()
+    digits_only = re.sub(r"\D", "", raw_mobile)
+    if len(digits_only) < 5:
+        return {"exists": False}
+
+    conds = [
+        "(mobile_no = %s OR REPLACE(REPLACE(REPLACE(REPLACE(mobile_no, ' ', ''), '-', ''), '+', ''), '(', '') LIKE %s)"
+    ]
+    params = [raw_mobile, f"%{digits_only[-10:]}"]
+
+    if lead_id:
+        conds.append("name != %s")
+        params.append(lead_id)
+
+    where_clause = " AND ".join(conds)
+    query = f"SELECT name, first_name, last_name, organization, lead_name FROM `tabCRM Lead` WHERE {where_clause} LIMIT 1"
+    res = frappe.db.sql(query, params, as_dict=True)
+
+    if res:
+        existing_lead = res[0]
+        lead_title = (
+            existing_lead.get("lead_name")
+            or f"{existing_lead.get('first_name') or ''} {existing_lead.get('last_name') or ''}".strip()
+            or existing_lead.get("organization")
+            or existing_lead.get("name")
+        )
+        return {
+            "exists": True,
+            "lead_name": existing_lead.name,
+            "lead_title": lead_title,
+            "message": f"A Lead with this mobile number already exists ({lead_title} - {existing_lead.name}).",
+        }
+
+    return {"exists": False}
+
+
+@frappe.whitelist()
+def check_lead_duplicates(email=None, mobile_no=None, lead_id=None):
+    results = {
+        "email_exists": False,
+        "email_message": "",
+        "mobile_exists": False,
+        "mobile_message": "",
+    }
+
+    if email and str(email).strip():
+        raw_email = str(email).strip().lower()
+        conds = ["LOWER(email) = %s"]
+        params = [raw_email]
+        if lead_id:
+            conds.append("name != %s")
+            params.append(lead_id)
+        where_clause = " AND ".join(conds)
+        query = f"SELECT name, first_name, last_name, organization, lead_name FROM `tabCRM Lead` WHERE {where_clause} LIMIT 1"
+        res = frappe.db.sql(query, params, as_dict=True)
+        if res:
+            existing = res[0]
+            title = (
+                existing.get("lead_name")
+                or f"{existing.get('first_name') or ''} {existing.get('last_name') or ''}".strip()
+                or existing.get("organization")
+                or existing.get("name")
+            )
+            results["email_exists"] = True
+            results["email_message"] = _("A Lead with this email already exists ({0} - {1})").format(title, existing.name)
+
+    if mobile_no and str(mobile_no).strip():
+        mob_res = check_mobile_number_exists(mobile_no=mobile_no, lead_id=lead_id)
+        if mob_res.get("exists"):
+            results["mobile_exists"] = True
+            results["mobile_message"] = mob_res.get("message")
+
+    return results
+
+
+@frappe.whitelist()
+def validate_customer(doc, method=None):
+    validate_plan_project_matching(doc)
+
+    # Unique project company check for Customer
+    project_company = (doc.get("custom_project_company") or "").strip()
+    if project_company:
+        filters = [["custom_project_company", "=", project_company]]
+        if not doc.is_new() and doc.name:
+            filters.append(["name", "!=", doc.name])
+
+        existing_customer = frappe.db.exists("Customer", filters)
+        if existing_customer:
+            frappe.throw(
+                _(f"A Customer with Project Company '{project_company}' already exists ({existing_customer}).")
+            )
 
 
 @frappe.whitelist()
@@ -580,6 +991,8 @@ def validate_sales_invoice(doc, method=None):
                 doc.project = cust.custom_project
             if cust.crm_deal and not doc.get("custom_crm_deal"):
                 doc.custom_crm_deal = cust.crm_deal
+
+    validate_plan_project_matching(doc)
 
 
 # SECTION 5: CRM LEAD HOOKS
@@ -614,10 +1027,36 @@ def _create_follow_up_task(ref_doctype, ref_name, assigned_to):
         )
         task.insert(ignore_permissions=True)
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Task Creation Failed: {ref_doctype} {ref_name}",
             message=frappe.get_traceback(),
+            reference_doctype=ref_doctype,
+            reference_name=ref_name,
         )
+
+
+@frappe.whitelist()
+def custom_convert_to_deal(
+    lead: str,
+    doc=None,
+    deal=None,
+    existing_contact=None,
+    existing_organization=None,
+):
+    lead_doc = frappe.get_cached_doc("CRM Lead", lead)
+    if not lead_doc.email or not str(lead_doc.email).strip():
+        frappe.throw(_("Email is mandatory to convert Lead to Deal. Please update the Lead with an email address."))
+    if not lead_doc.mobile_no or not str(lead_doc.mobile_no).strip():
+        frappe.throw(_("Mobile Number is mandatory to convert Lead to Deal. Please update the Lead with a mobile number."))
+
+    from crm.fcrm.doctype.crm_lead.crm_lead import convert_to_deal as original_convert_to_deal
+    return original_convert_to_deal(
+        lead=lead,
+        doc=doc,
+        deal=deal,
+        existing_contact=existing_contact,
+        existing_organization=existing_organization,
+    )
 
 
 def _auto_convert_lead_to_deal(lead_doc):
@@ -661,9 +1100,11 @@ def _auto_convert_lead_to_deal(lead_doc):
     try:
         lead_doc.convert_to_deal(deal=deal_fields)
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Lead Conversion Failed: {lead_doc.name}",
             message=frappe.get_traceback(),
+            reference_doctype="CRM Lead",
+            reference_name=lead_doc.name,
         )
 
 
@@ -743,9 +1184,11 @@ def after_crm_deal_insert(doc, method=None):
         )
         task.insert(ignore_permissions=True)
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Deal Task Creation Failed: {doc.name}",
             message=frappe.get_traceback(),
+            reference_doctype="CRM Deal",
+            reference_name=doc.name,
         )
 
 
@@ -852,7 +1295,7 @@ def broadcast_deal_company(doc, method=None):
                 f"Failed to verify company <b>{comp_code}</b> in project <b>{proj_code}</b>"
             )
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title="Deal-Company Debug: Exception", message=frappe.get_traceback()
         )
         raise
@@ -951,7 +1394,7 @@ def broadcast_customer_company(doc, method=None):
                     f"Failed to verify company in project: {response.get('error')}"
                 )
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title="Customer-Company Debug: Exception", message=frappe.get_traceback()
         )
         raise
@@ -1098,15 +1541,19 @@ def create_subscription(doc, method=None):
                         )
 
                 except Exception:
-                    frappe.log_error(
+                    log_integration_error(
                         title=f"Payment Entry Creation Failed for {inv_name}",
                         message=frappe.get_traceback(),
+                        reference_doctype="Sales Invoice",
+                        reference_name=inv_name,
                     )
 
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Subscription Creation Failed: {doc.name}",
             message=frappe.get_traceback(),
+            reference_doctype="Customer",
+            reference_name=doc.name,
         )
 
 
@@ -1299,9 +1746,10 @@ def process_incoming_integration_payload(payload=None):
         }
 
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title="Incoming Integration Failed",
             message=f"Doctype: {target_doctype}\nPayload: {payload}\n\n{frappe.get_traceback()}",
+            reference_doctype=target_doctype,
         )
         raise
 
@@ -1412,9 +1860,11 @@ def broadcast_crm_document(doc, method=None):
         )
         return {"status": "enqueued", "message": "Broadcast enqueued in the background"}
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Broadcast Enqueue Failed: {my_doctype} {doc_name}",
             message=frappe.get_traceback(),
+            reference_doctype=my_doctype,
+            reference_name=doc_name,
         )
         return {"status": "failed", "error": "Failed to enqueue broadcast"}
 
@@ -1502,9 +1952,11 @@ def _execute_broadcast(
         send_api_request(target_url, headers, payload, source_doctype, source_docname)
 
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Broadcast Execution Failed: {doctype} {docname}",
             message=frappe.get_traceback(),
+            reference_doctype=doctype,
+            reference_name=docname,
         )
 
 
@@ -1563,9 +2015,11 @@ def broadcast_delete_crm_document(doc, method=None):
             project_id=project_id,
         )
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Delete Broadcast Enqueue Failed: {my_doctype} {doc_name}",
             message=frappe.get_traceback(),
+            reference_doctype=my_doctype,
+            reference_name=doc_name,
         )
 
 
@@ -1612,21 +2066,27 @@ def _execute_broadcast_delete(payload, doctype, docname, project_id):
                 except Exception:
                     error_msg = f"Remote POS Error: {server_messages}"
 
-            frappe.log_error(
+            log_integration_error(
                 title=f"Remote Delete Failed: {doctype} {docname}",
                 message=error_msg,
+                reference_doctype=doctype,
+                reference_name=docname,
             )
 
     except Exception:
-        frappe.log_error(
+        log_integration_error(
             title=f"Delete Broadcast Execution Failed: {doctype} {docname}",
             message=frappe.get_traceback(),
+            reference_doctype=doctype,
+            reference_name=docname,
         )
 
 
 # SECTION 11: CUSTOM SUBSCRIPTION
 @frappe.whitelist()
 def validate_subscription(doc, method=None):
+    validate_plan_project_matching(doc)
+
     total_original_cost = 0.0
     total_custom_cost = 0.0
 
@@ -1781,9 +2241,11 @@ def handle_deal_payment_task(doc, method=None):
                 )
                 task.insert(ignore_permissions=True)
             except Exception:
-                frappe.log_error(
+                log_integration_error(
                     title=f"Payment Task Creation Failed: {doc.name}",
                     message=frappe.get_traceback(),
+                    reference_doctype="CRM Deal",
+                    reference_name=doc.name,
                 )
 
     elif doc.get("custom_payment_status") == "Paid":

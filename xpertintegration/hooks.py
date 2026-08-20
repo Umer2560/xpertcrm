@@ -44,6 +44,7 @@ app_license = "mit"
 
 doctype_js = {
     "Customer": "public/js/customer.js",
+    "CRM Lead": "public/js/crm_lead.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -162,6 +163,7 @@ doc_events = {
         "on_cancel": "xpertintegration.api.integration.broadcast_crm_document",
     },
     "Customer": {
+        "validate": "xpertintegration.api.integration.validate_customer",
         "before_insert": [
             "xpertintegration.api.integration.before_customer_insert",
             "xpertintegration.api.integration.broadcast_customer_company",
@@ -250,6 +252,7 @@ override_whitelisted_methods = {
     "crm.api.session.get_users": "xpertintegration.api.session.get_users",
     "crm.api.session.get_organizations": "xpertintegration.api.session.get_organizations",
     "crm.api.activities.get_activities": "xpertintegration.api.activities.get_activities",
+    "crm.fcrm.doctype.crm_lead.crm_lead.convert_to_deal": "xpertintegration.api.integration.custom_convert_to_deal",
 }
 
 #

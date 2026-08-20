@@ -222,3 +222,28 @@
     margin-top: 16px;
     font-weight: 600;
 }
+
+/* Filter Card Controls */
+.pv-filter-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #718096;
+    margin-bottom: 6px;
+    font-weight: 700;
+    display: block;
+}
+.pv-filter-select {
+    height: 38px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #2d3748;
+    border: 1px solid #cbd5e0;
+    background-color: #f7fafc;
+}
+.pv-filter-select:focus {
+    border-color: #3182ce;
+    box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.15);
+}
+

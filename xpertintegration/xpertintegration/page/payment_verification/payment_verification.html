@@ -1,130 +1,120 @@
-<div class="payment-verification-wrapper">
-    <!-- Header Row (Hidden on mobile) -->
-    <div class="pv-header-row">
-        <div class="pv-col-details">Details</div>
-        <div class="pv-col-attachment text-center">Attachment</div>
-        <div class="pv-col-action">Verification</div>
+{% if (data.length === 0) { %}
+<div class="pv-empty-state">
+    <i class="fa fa-inbox fa-4x mb-3"></i>
+    <h5>No pending verifications found</h5>
+    <p class="text-muted">All caught up! There are no payments waiting to be verified for the selected filters.</p>
+</div>
+{% } else { %}
+{% for (let i=0, l=data.length; i<l; i++) { %} {% let row=data[i]; %} <div class="pv-card" data-name="{{ row.name }}"
+    data-record-type="{{ row.record_type }}">
+
+    <!-- Details Column -->
+    <div class="pv-col-details">
+        <a href="{{ row.link }}" target="_blank" class="pv-deal-link">
+            <i class="fa fa-building-o mr-1 text-muted"></i>{{ row.organization || row.custom_company_code || "-" }}
+        </a>
+        <span class="pv-company-name mb-2">
+            <i class="fa fa-file-text-o mr-1"></i> {{ row.name }}
+            <span class="badge badge-light border ml-1 text-secondary" style="font-weight: 500; font-size: 11px;">{{
+                row.record_type }}</span>
+        </span>
+
+        {% if (row.mobile_no) { %}
+        <span class="pv-company-name mb-3 text-muted">
+            <i class="fa fa-phone mr-1"></i> <a href="tel:{{ row.mobile_no }}" class="text-muted">{{ row.mobile_no
+                }}</a>
+        </span>
+        {% } %}
+
+        <div class="pv-details-grid mt-2">
+            {% if (row.custom_reference_number) { %}
+            <span class="pv-label"><i class="fa fa-hashtag fa-fw mr-1"></i> Ref #</span>
+            <span class="pv-value">{{ row.custom_reference_number }}</span>
+            {% } %}
+
+            {% if (row.custom_posting_date) { %}
+            <span class="pv-label"><i class="fa fa-calendar-o fa-fw mr-1"></i> Posted</span>
+            <span class="pv-value">{{ row.custom_posting_date }}</span>
+            {% } %}
+
+            {% if (row.custom_payment_date) { %}
+            <span class="pv-label"><i class="fa fa-calendar-check-o fa-fw mr-1"></i> Paid On</span>
+            <span class="pv-value">{{ row.custom_payment_date }}</span>
+            {% } %}
+
+            {% if (row.custom_due_date) { %}
+            <span class="pv-label"><i class="fa fa-clock-o fa-fw mr-1"></i> Due</span>
+            <span class="pv-value">{{ row.custom_due_date }}</span>
+            {% } %}
+
+            <span class="pv-label"><i class="fa fa-money fa-fw mr-1"></i> Total</span>
+            <span class="pv-value pv-value-amount">{{ format_currency(row.custom_amount,
+                frappe.boot.sysdefaults.currency) }}</span>
+
+            <span class="pv-label"><i class="fa fa-check-circle fa-fw mr-1 text-success"></i> Paid</span>
+            <span class="pv-value pv-value-paid">{{ format_currency(row.custom_paid_amount,
+                frappe.boot.sysdefaults.currency) }}</span>
+        </div>
     </div>
 
-    <div id="payment-verification-body">
-        {% if (data.length === 0) { %}
-        <div class="pv-empty-state">
-            <i class="fa fa-inbox fa-4x mb-3"></i>
-            <h5>No pending verifications found</h5>
-            <p class="text-muted">All caught up! There are no payments waiting to be verified.</p>
+    <!-- Attachment Column -->
+    <div class="pv-col-attachment">
+        {% if (row.custom_payment_proof) %}
+        {% let url = row.custom_payment_proof; %}
+        {% let ext = url.split(".").pop().toLowerCase(); %}
+        {% if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) %}
+        <div class="pv-proof-wrapper">
+            <img src="{{ url }}" class="pv-proof-img proof-image" data-url="{{ url }}"
+                title="Click to view full image" />
         </div>
         {% } else { %}
-        {% for (let i=0, l=data.length; i<l; i++) { %} {% let row=data[i]; %} <div class="pv-card"
-            data-name="{{ row.name }}">
+        <a href="{{ url }}" target="_blank" class="btn btn-light border text-muted shadow-sm px-4 py-2 rounded-pill">
+            <i class="fa fa-file mr-2"></i> View Attached File
+        </a>
+        {% } %}
+        {% } else { %}
+        <div class="text-center text-muted">
+            <div class="mb-2"><i class="fa fa-exclamation-triangle fa-2x text-warning" style="opacity: 0.6"></i></div>
+            <span style="font-size: 13px; font-weight: 500;">No Attachment</span>
+        </div>
+        {% } %}
+    </div>
 
-            <!-- Details Column -->
-            <div class="pv-col-details">
-                <a href="/app/crm-deal/{{ row.name }}" class="pv-deal-link">
-                    <i class="fa fa-building-o mr-1 text-muted"></i>Company: {{ row.organization ||
-                    row.custom_company_code || "-" }}
-                </a>
-                <span class="pv-company-name mb-3">
-                    <i class="fa fa-briefcase mr-1"></i> {{ row.name }}
-                </span>
-                
-                {% if (row.mobile_no) { %}
-                <span class="pv-company-name mb-3 text-muted">
-                    <i class="fa fa-phone mr-1"></i> <a href="tel:{{ row.mobile_no }}" class="text-muted">{{ row.mobile_no }}</a>
-                </span>
-                {% } %}
+    <!-- Action Column -->
+    <div class="pv-col-action">
+        <label class="pv-action-label">AMOUNT RECEIVED</label>
+        <input type="number" class="form-control amount-received-input mb-3"
+            value="{{ row.custom_paid_amount || row.custom_amount }}" />
 
-                <div class="pv-details-grid">
-                    {% if (row.custom_reference_number) { %}
-                    <span class="pv-label"><i class="fa fa-hashtag fa-fw mr-1"></i> Ref #</span>
-                    <span class="pv-value">{{ row.custom_reference_number }}</span>
-                    {% } %}
+        <label class="pv-action-label">MODE OF PAYMENT</label>
+        <div class="pv-mode-of-payment-control mb-3" data-value="{{ row.custom_mode_of_payment || "" }}"></div>
 
-                    {% if (row.custom_posting_date) { %}
-                    <span class="pv-label"><i class="fa fa-calendar-o fa-fw mr-1"></i> Posted</span>
-                    <span class="pv-value">{{ row.custom_posting_date }}</span>
-                    {% } %}
+        <label class="pv-action-label">ACCOUNT PAID TO</label>
+        <div class="pv-account-paid-to-control mb-3" data-value="{{ row.custom_account_paid_to || "" }}"></div>
 
-                    {% if (row.custom_payment_date) { %}
-                    <span class="pv-label"><i class="fa fa-calendar-check-o fa-fw mr-1"></i> Paid On</span>
-                    <span class="pv-value">{{ row.custom_payment_date }}</span>
-                    {% } %}
+        <label class="pv-action-label">VERIFIED THROUGH</label>
+        <select class="form-control action-select pv-select mb-3">
+            <option value="" class="text-muted">Select Action</option>
+            <option value="Paid" {% if (row.custom_payment_status==="Paid" ) { %}selected{% } %}>Received</option>
+            <option value="Cancelled" {% if (row.custom_payment_status==="Cancelled" ) { %}selected{% } %}>Cancelled
+            </option>
+            <option value="Unpaid" {% if (row.custom_payment_status==="Unpaid" ) { %}selected{% } %}>Not Received
+            </option>
+        </select>
 
-                    {% if (row.custom_due_date) { %}
-                    <span class="pv-label"><i class="fa fa-clock-o fa-fw mr-1"></i> Due</span>
-                    <span class="pv-value">{{ row.custom_due_date }}</span>
-                    {% } %}
+        {% if (row.custom_payment_status === "Cancelled" || row.custom_payment_status === "Unpaid") { %}
+        <textarea class="form-control remarks-input pv-textarea pv-textarea-visible mb-3"
+            placeholder="Remarks...">{{ row.custom_payment_remarks || "" }}</textarea>
+        {% } else { %}
+        <textarea class="form-control remarks-input pv-textarea pv-textarea-hidden mb-3"
+            placeholder="Remarks...">{{ row.custom_payment_remarks || "" }}</textarea>
+        {% } %}
 
-                    <span class="pv-label"><i class="fa fa-money fa-fw mr-1"></i> Total</span>
-                    <span class="pv-value pv-value-amount">{{ format_currency(row.custom_amount,
-                        frappe.boot.sysdefaults.currency) }}</span>
-
-                    <span class="pv-label"><i class="fa fa-check-circle fa-fw mr-1 text-success"></i> Paid</span>
-                    <span class="pv-value pv-value-paid">{{ format_currency(row.custom_paid_amount,
-                        frappe.boot.sysdefaults.currency) }}</span>
-                </div>
-            </div>
-
-            <!-- Attachment Column -->
-            <div class="pv-col-attachment">
-                {% if (row.custom_payment_proof) %}
-                {% let url = row.custom_payment_proof; %}
-                {% let ext = url.split(".").pop().toLowerCase(); %}
-                {% if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) %}
-                <div class="pv-proof-wrapper">
-                    <img src="{{ url }}" class="pv-proof-img proof-image" data-url="{{ url }}"
-                        title="Click to view full image" />
-                </div>
-                {% } else { %}
-                <a href="{{ url }}" target="_blank"
-                    class="btn btn-light border text-muted shadow-sm px-4 py-2 rounded-pill">
-                    <i class="fa fa-file mr-2"></i> View Attached File
-                </a>
-                {% } %}
-                {% } else { %}
-                <div class="text-center text-muted">
-                    <div class="mb-2"><i class="fa fa-exclamation-triangle fa-2x text-warning" style="opacity: 0.6"></i>
-                    </div>
-                    <span style="font-size: 13px; font-weight: 500;">No Attachment</span>
-                </div>
-                {% } %}
-            </div>
-
-            <!-- Action Column -->
-            <div class="pv-col-action">
-                <label class="pv-action-label">AMOUNT RECEIVED</label>
-                <input type="number" class="form-control amount-received-input mb-3" 
-                       value="{{ row.custom_paid_amount || row.custom_amount }}" />
-
-                <label class="pv-action-label">MODE OF PAYMENT</label>
-                <div class="pv-mode-of-payment-control mb-3" data-value="{{ row.custom_mode_of_payment || "" }}"></div>
-
-                <label class="pv-action-label">ACCOUNT PAID TO</label>
-                <div class="pv-account-paid-to-control mb-3" data-value="{{ row.custom_account_paid_to || "" }}"></div>
-
-                <label class="pv-action-label">VERIFIED THROUGH</label>
-
-                <select class="form-control action-select pv-select mb-3">
-                    <option value="" class="text-muted">— Select method —</option>
-                    <option value="Paid" {% if (row.custom_payment_status==="Paid" ) { %}selected{% } %}>Received
-                    </option>
-                    <option value="Cancelled" {% if (row.custom_payment_status==="Cancelled" ) { %}selected{% } %}>
-                        Cancelled</option>
-                    <option value="Unpaid" {% if (row.custom_payment_status==="Unpaid" ) { %}selected{% } %}>Not
-                        Received</option>
-                </select>
-
-                {% if (row.custom_payment_status === "Cancelled" || row.custom_payment_status === "Unpaid") { %}
-                <textarea class="form-control remarks-input pv-textarea pv-textarea-visible mb-3"
-                    placeholder="Remarks...">{{ row.custom_payment_remarks || "" }}</textarea>
-                {% } else { %}
-                <textarea class="form-control remarks-input pv-textarea pv-textarea-hidden mb-3"
-                    placeholder="Remarks...">{{ row.custom_payment_remarks || "" }}</textarea>
-                {% } %}
-
-                <button class="btn btn-block btn-save pv-btn-verify mt-auto" data-name="{{ row.name }}">
-                    <i class="fa fa-check mr-1"></i> Verify Payment
-                </button>
-            </div>
+        <button class="btn btn-block btn-save pv-btn-verify mt-auto" data-name="{{ row.name }}"
+            data-record-type="{{ row.record_type }}">
+            <i class="fa fa-check mr-1"></i> Verify Payment
+        </button>
+    </div>
 
     </div>
     {% } %}
@@ -146,6 +136,3 @@
         </div>
     </div>
     {% } %}
-
-</div>
-</div>

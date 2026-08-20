@@ -1,0 +1,200 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "INT-LOG-.YYYY.-.#####",
+ "creation": "2026-08-19 11:45:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "status",
+  "direction",
+  "trigger_source",
+  "execution_time",
+  "column_break_1",
+  "http_method",
+  "response_code",
+  "triggered_by",
+  "section_break_context",
+  "reference_doctype",
+  "reference_name",
+  "column_break_context",
+  "company_code",
+  "endpoint_url",
+  "section_break_payload",
+  "request_headers",
+  "request_payload",
+  "column_break_payload",
+  "response_payload",
+  "section_break_errors",
+  "error_traceback",
+  "column_break_errors",
+  "remarks",
+  "retry_count"
+ ],
+ "fields": [
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Success\nFailed\nPending\nRetrying"
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Direction",
+   "options": "Outbound\nInbound"
+  },
+  {
+   "fieldname": "trigger_source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Trigger Source",
+   "options": "DocType Hook\nAPI Endpoint\nScheduled Task\nManual Trigger"
+  },
+  {
+   "fieldname": "execution_time",
+   "fieldtype": "Float",
+   "label": "Execution Time (s)"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "http_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "HTTP Method",
+   "options": "\nPOST\nGET\nPUT\nDELETE"
+  },
+  {
+   "fieldname": "response_code",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Response Code"
+  },
+  {
+   "fieldname": "triggered_by",
+   "fieldtype": "Link",
+   "label": "Triggered By",
+   "options": "User"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_context",
+   "fieldtype": "Section Break",
+   "label": "Document Context"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Reference DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Reference Document",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "column_break_context",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company_code",
+   "fieldtype": "Data",
+   "label": "Company Code"
+  },
+  {
+   "fieldname": "endpoint_url",
+   "fieldtype": "Small Text",
+   "label": "Endpoint URL"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_payload",
+   "fieldtype": "Section Break",
+   "label": "Payload & Response Data"
+  },
+  {
+   "fieldname": "request_headers",
+   "fieldtype": "Code",
+   "label": "Request Headers",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "request_payload",
+   "fieldtype": "Code",
+   "label": "Request Payload",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "column_break_payload",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "response_payload",
+   "fieldtype": "Code",
+   "label": "Response Payload",
+   "options": "JSON"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_errors",
+   "fieldtype": "Section Break",
+   "label": "Diagnostics & Errors"
+  },
+  {
+   "fieldname": "error_traceback",
+   "fieldtype": "Code",
+   "label": "Error Traceback",
+   "options": "Python"
+  },
+  {
+   "fieldname": "column_break_errors",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "default": "0",
+   "fieldname": "retry_count",
+   "fieldtype": "Int",
+   "label": "Retry Count"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-19 11:45:00.000000",
+ "modified_by": "Administrator",
+ "module": "XpertIntegration",
+ "name": "Integration Log",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "reference_name"
+}

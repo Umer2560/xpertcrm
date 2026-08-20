@@ -1,0 +1,1 @@
+# Integration Log DocType Module
