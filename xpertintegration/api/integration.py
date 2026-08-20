@@ -994,7 +994,46 @@ def validate_sales_invoice(doc, method=None):
             if cust.crm_deal and not doc.get("custom_crm_deal"):
                 doc.custom_crm_deal = cust.crm_deal
 
+    set_sales_person_from_deal_owner(doc)
     validate_plan_project_matching(doc)
+
+
+def set_sales_person_from_deal_owner(doc):
+    crm_deal = doc.get("custom_crm_deal")
+    if not crm_deal and doc.get("customer"):
+        crm_deal = frappe.db.get_value("Customer", doc.customer, "crm_deal")
+        if crm_deal:
+            doc.custom_crm_deal = crm_deal
+
+    if not crm_deal:
+        return
+
+    deal_owner = frappe.db.get_value("CRM Deal", crm_deal, "deal_owner")
+    if not deal_owner:
+        return
+
+    sales_person = frappe.db.get_value("Sales Person", {"custom_user": deal_owner}, "name")
+    if not sales_person:
+        sales_person = frappe.db.get_value("Sales Person", {"sales_person_name": deal_owner}, "name")
+    if not sales_person:
+        sales_person = frappe.db.exists("Sales Person", deal_owner)
+
+    if not sales_person:
+        return
+
+    existing_persons = [item.sales_person for item in doc.get("sales_team") or []]
+    if sales_person not in existing_persons:
+        if not doc.get("sales_team"):
+            commission_rate = frappe.db.get_value("Sales Person", sales_person, "commission_rate")
+            doc.append(
+                "sales_team",
+                {
+                    "sales_person": sales_person,
+                    "allocated_percentage": 100.0,
+                    "commission_rate": commission_rate,
+                },
+            )
+
 
 
 # SECTION 5: CRM LEAD HOOKS
@@ -1509,6 +1548,11 @@ def create_subscription(doc, method=None):
                 frappe.db.set_value(
                     "Sales Invoice", inv_name, "custom_crm_deal", doc.crm_deal
                 )
+                si_doc = frappe.get_doc("Sales Invoice", inv_name)
+                set_sales_person_from_deal_owner(si_doc)
+                if si_doc.get("sales_team"):
+                    si_doc.save(ignore_permissions=True)
+
 
                 try:
                     from erpnext.accounts.doctype.payment_entry.payment_entry import (
@@ -2273,3 +2317,84 @@ def update_deal_payment_status(doc, method=None):
         frappe.db.set_value(
             "CRM Deal", doc.custom_crm_deal, "custom_payment_status", doc.status
         )
+
+
+@frappe.whitelist()
+def check_user_sales_and_referral(user):
+    if not user:
+        return {"has_sales_person": False, "has_referral_code": False, "is_crm_lead_profile": False}
+
+    has_sp = bool(frappe.db.exists("Sales Person", {"custom_user": user}))
+    has_rc = bool(frappe.db.exists("User Referral Code", {"user": user}))
+
+    is_crm_lead_profile = False
+    if frappe.db.exists("User", user):
+        user_doc = frappe.get_doc("User", user)
+        if user_doc.get("role_profile_name") == "CRM Lead Profile":
+            is_crm_lead_profile = True
+        elif user_doc.get("role_profiles"):
+            for rp in user_doc.role_profiles:
+                if rp.get("role_profile") == "CRM Lead Profile" or rp.get("role_profile_name") == "CRM Lead Profile":
+                    is_crm_lead_profile = True
+                    break
+
+    return {
+        "has_sales_person": has_sp,
+        "has_referral_code": has_rc,
+        "is_crm_lead_profile": is_crm_lead_profile,
+    }
+
+
+
+@frappe.whitelist()
+def create_sales_person(user, commission_rate):
+    if not user or not frappe.db.exists("User", user):
+        frappe.throw(_("User '{0}' does not exist.").format(user))
+
+    existing_sp = frappe.db.get_value("Sales Person", {"custom_user": user}, "name")
+    if existing_sp:
+        frappe.throw(_("Sales Person record '{0}' already exists for this user.").format(existing_sp))
+
+    user_doc = frappe.get_doc("User", user)
+    sp_name = user_doc.full_name or user_doc.first_name or user
+    sp_name = sp_name.strip()
+
+    if frappe.db.exists("Sales Person", sp_name):
+        sp_name = f"{sp_name} ({user})"
+
+    doc = frappe.get_doc({
+        "doctype": "Sales Person",
+        "sales_person_name": sp_name,
+        "custom_user": user,
+        "commission_rate": commission_rate,
+        "is_group": 0,
+        "enabled": 1
+    })
+    doc.insert(ignore_permissions=True)
+    return doc.name
+
+
+@frappe.whitelist()
+def create_user_referral_code(user, referral_code):
+    if not user or not frappe.db.exists("User", user):
+        frappe.throw(_("User '{0}' does not exist.").format(user))
+
+    referral_code = (referral_code or "").strip()
+    if not referral_code:
+        frappe.throw(_("Referral Code is required."))
+
+    existing_user_code = frappe.db.get_value("User Referral Code", {"user": user}, "name")
+    if existing_user_code:
+        frappe.throw(_("Referral Code '{0}' already exists for this user.").format(existing_user_code))
+
+    if frappe.db.exists("User Referral Code", {"referral_code": referral_code}):
+        frappe.throw(_("Referral Code '{0}' is already assigned to another user.").format(referral_code))
+
+    doc = frappe.get_doc({
+        "doctype": "User Referral Code",
+        "user": user,
+        "referral_code": referral_code
+    })
+    doc.insert(ignore_permissions=True)
+    return doc.name
+
