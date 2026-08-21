@@ -409,11 +409,32 @@ def send_api_request(
         try:
             resp_json = response.json()
             resp_payload = resp_json
-            if source_doctype and source_docname and isinstance(resp_json, dict):
-                callback_data = resp_json.get("message", {}).get("callback_data")
-                if isinstance(callback_data, dict):
-                    frappe.db.set_value(source_doctype, source_docname, callback_data)
-            ret_val = {"status": "success", "data": resp_json}
+
+            has_remote_error = False
+            remote_error_msg = None
+
+            if isinstance(resp_json, dict):
+                if resp_json.get("status") in ["failed", "error"]:
+                    has_remote_error = True
+                    remote_error_msg = resp_json.get("error") or resp_json.get("message") or "Remote API returned failed status"
+                elif resp_json.get("exc") or resp_json.get("exception"):
+                    has_remote_error = True
+                    remote_error_msg = resp_json.get("exc") or resp_json.get("exception")
+                elif isinstance(resp_json.get("message"), dict) and resp_json.get("message", {}).get("status") in ["failed", "error"]:
+                    has_remote_error = True
+                    remote_error_msg = resp_json.get("message", {}).get("error") or resp_json.get("message", {}).get("message")
+
+            if has_remote_error:
+                status = "Failed"
+                err_trace = str(remote_error_msg)
+                remarks = f"Remote API Error: {str(remote_error_msg)[:140]}"
+                ret_val = {"status": "failed", "error": remote_error_msg, "data": resp_json}
+            else:
+                if source_doctype and source_docname and isinstance(resp_json, dict):
+                    callback_data = resp_json.get("message", {}).get("callback_data")
+                    if isinstance(callback_data, dict):
+                        frappe.db.set_value(source_doctype, source_docname, callback_data)
+                ret_val = {"status": "success", "data": resp_json}
         except ValueError:
             resp_payload = response.text
             ret_val = {"status": "success", "text": response.text}
@@ -1532,6 +1553,16 @@ def create_subscription(doc, method=None):
         sub.insert(ignore_permissions=True)
         sub.process()
 
+        create_integration_log(
+            status="Success",
+            direction="Internal Sync",
+            trigger_source="DocType Hook",
+            reference_doctype="Subscription",
+            reference_name=sub.name,
+            company_code=doc.get("custom_project_company"),
+            remarks=f"Subscription '{sub.name}' created for Customer '{doc.name}'",
+        )
+
         # Create Payment Entry if Paid Amount exists in CRM Deal
         if deal_doc and deal_doc.get("custom_paid_amount"):
             paid_amount = deal_doc.custom_paid_amount
@@ -1693,7 +1724,18 @@ def xpert_integration(payload=None):
 
 @frappe.whitelist()
 def process_incoming_integration_payload(payload=None):
+    import time
+    start_time = time.time()
+
     if not payload:
+        create_integration_log(
+            status="Failed",
+            direction="Inbound",
+            trigger_source="Webhook / API",
+            http_method="POST",
+            error_traceback="Payload is required.",
+            remarks="Inbound request failed: No payload provided",
+        )
         frappe.throw("Payload is required.")
 
     if isinstance(payload, str):
@@ -1701,10 +1743,20 @@ def process_incoming_integration_payload(payload=None):
 
     target_doctype = payload.get("doctype")
     if not target_doctype:
+        create_integration_log(
+            status="Failed",
+            direction="Inbound",
+            trigger_source="Webhook / API",
+            http_method="POST",
+            request_payload=payload,
+            error_traceback="Payload must contain 'doctype'.",
+            remarks="Inbound request failed: Missing doctype in payload",
+        )
         frappe.throw("Payload must contain 'doctype'.")
 
     logger = get_integration_logger()
     doc_fields = dict(payload)
+    company_code = doc_fields.get("custom_company_code") or doc_fields.get("custom_project_company")
 
     # Handle base64 file fields
     for field, value in list(doc_fields.items()):
@@ -1784,18 +1836,52 @@ def process_incoming_integration_payload(payload=None):
                 pass
             action = "created"
 
-        # NOTE: Removed manual frappe.db.commit(). Frappe handles transactions.
-        return {
+        exec_time = round(time.time() - start_time, 3)
+        res_payload = {
             "status": "success",
             "message": f"{target_doctype} '{doc.name}' {action} successfully.",
             "docname": doc.name,
         }
 
-    except Exception:
+        create_integration_log(
+            status="Success",
+            direction="Inbound",
+            trigger_source="Webhook / API",
+            reference_doctype=target_doctype,
+            reference_name=doc.name,
+            company_code=company_code,
+            http_method="POST",
+            request_payload=payload,
+            response_payload=res_payload,
+            remarks=f"Inbound {target_doctype} {action} successfully",
+            execution_time=exec_time,
+        )
+
+        return res_payload
+
+    except Exception as e:
+        exec_time = round(time.time() - start_time, 3)
+        err_trace = frappe.get_traceback()
+
+        create_integration_log(
+            status="Failed",
+            direction="Inbound",
+            trigger_source="Webhook / API",
+            reference_doctype=target_doctype,
+            reference_name=doc_fields.get("name"),
+            company_code=company_code,
+            http_method="POST",
+            request_payload=payload,
+            error_traceback=err_trace,
+            remarks=f"Inbound {target_doctype} processing failed: {str(e)}",
+            execution_time=exec_time,
+        )
+
         log_integration_error(
             title="Incoming Integration Failed",
-            message=f"Doctype: {target_doctype}\nPayload: {payload}\n\n{frappe.get_traceback()}",
+            message=f"Doctype: {target_doctype}\nPayload: {payload}\n\n{err_trace}",
             reference_doctype=target_doctype,
+            company_code=company_code,
         )
         raise
 

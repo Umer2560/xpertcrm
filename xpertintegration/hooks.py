@@ -129,13 +129,16 @@ doctype_js = {
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+import xpertintegration.overrides.crm_notification  # noqa: F401
+
+permission_query_conditions = {
+	"CRM Notification": "xpertintegration.overrides.crm_notification.get_permission_query_conditions",
+}
+
+has_permission = {
+	"CRM Notification": "xpertintegration.overrides.crm_notification.has_permission",
+}
+
 
 # Document Events
 # ---------------
@@ -254,6 +257,7 @@ override_whitelisted_methods = {
     "crm.api.session.get_organizations": "xpertintegration.api.session.get_organizations",
     "crm.api.activities.get_activities": "xpertintegration.api.activities.get_activities",
     "crm.fcrm.doctype.crm_lead.crm_lead.convert_to_deal": "xpertintegration.api.integration.custom_convert_to_deal",
+    "crm.api.doc.get_data": "xpertintegration.api.doc.custom_get_data",
 }
 
 #

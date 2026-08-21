@@ -1,5 +1,9 @@
 frappe.ui.form.on("User", {
 	refresh(frm) {
+		hide_unwanted_buttons(frm);
+		setTimeout(() => hide_unwanted_buttons(frm), 100);
+		setTimeout(() => hide_unwanted_buttons(frm), 300);
+
 		if (frm.is_new()) return;
 
 		const has_profile_cs = has_crm_lead_profile(frm.doc);
@@ -98,6 +102,24 @@ frappe.ui.form.on("User", {
 		});
 	}
 });
+
+function hide_unwanted_buttons(frm) {
+	if (!frm || !frm.page) return;
+
+	// Remove top-level inner buttons and button groups
+	frm.page.remove_inner_button(__("Permissions"));
+	frm.page.remove_inner_button(__("Password"));
+	frm.page.remove_inner_button(__("Create User Email"));
+	frm.remove_custom_button(__("Create User Email"));
+
+	// Remove inner items under Permissions & Password dropdowns if rendered individually
+	frm.page.remove_inner_button(__("Set User Permissions"), __("Permissions"));
+	frm.page.remove_inner_button(__("View Permitted Documents"), __("Permissions"));
+	frm.page.remove_inner_button(__("View Doctype Permissions"), __("Permissions"));
+	frm.page.remove_inner_button(__("Reset Password"), __("Password"));
+	frm.page.remove_inner_button(__("Reset LDAP Password"), __("Password"));
+	frm.page.remove_inner_button(__("Reset OTP Secret"), __("Password"));
+}
 
 function has_crm_lead_profile(doc) {
 	if (!doc) return false;
