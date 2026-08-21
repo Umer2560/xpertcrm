@@ -689,12 +689,12 @@ def validate_crm_deal(doc, method=None):
     # 2. Minimum cost validation against subscription plan
     validate_deal_minimum_cost(doc)
 
-    # 3. Lock Won deals
+    # 3. Lock status change on Won deals (allow editing custom_sale_price and other fields)
     if not doc.is_new():
         old_status = frappe.db.get_value("CRM Deal", doc.name, "status")
-        if old_status == "Won":
+        if old_status == "Won" and doc.status != "Won":
             frappe.throw(
-                "This Deal has already been marked as 'Won' and cannot be edited."
+                "Status of a Deal that is already marked as 'Won' cannot be changed."
             )
 
     # 4. AI Payment Proof extraction
@@ -736,13 +736,13 @@ def validate_crm_deal(doc, method=None):
         )
     print("=" * 60 + "\n")
 
-    # 5. Payment status validation when status is Paid
+    # 5. Payment status validation when status is Submitted or Paid
     if (
-        doc.get("custom_payment_status") == "Paid"
+        doc.get("custom_payment_status") in ["Submitted", "Paid"]
         and flt(doc.get("custom_paid_amount")) <= 0
     ):
         frappe.throw(
-            "Paid Amount must be greater than 0 when Payment Status is set to Paid."
+            "Paid Amount must be greater than 0 when Payment Status is set to Submitted."
         )
 
     # 6. Payment fields when company code exists
@@ -758,8 +758,8 @@ def validate_crm_deal(doc, method=None):
     if doc.status == "Won":
         if doc.is_new():
             frappe.throw(_("A new CRM Deal cannot be set to 'Won'."))
-        if doc.get("custom_payment_status") != "Paid":
-            frappe.throw("Payment Status must be 'Paid' before marking the deal as Won.")
+        if doc.get("custom_payment_status") not in ["Submitted", "Paid"]:
+            frappe.throw("Payment Status must be 'Submitted' before marking the deal as Won.")
         _validate_deal_trial_or_win_conditions(doc, is_won=True)
     elif doc.status == "In Trial":
         _validate_deal_trial_or_win_conditions(doc, is_won=False)
@@ -2483,4 +2483,300 @@ def create_user_referral_code(user, referral_code):
     })
     doc.insert(ignore_permissions=True)
     return doc.name
+
+
+@frappe.whitelist()
+def process_deal_billing_pipeline(deal_doc):
+    """
+    Executes and validates the sequential creation of Customer, Subscription,
+    Sales Invoice, and Payment Entry for a won CRM Deal.
+    Uses explicit if/else conditions to verify each stage, throwing errors with clear explanations if any step fails.
+    """
+    if isinstance(deal_doc, str):
+        deal_doc = frappe.get_doc("CRM Deal", deal_doc)
+
+    if deal_doc.status != "Won":
+        return {}
+
+    # STEP 1: CUSTOMER CREATION / VERIFICATION
+    cust_name = (
+        deal_doc.get("customer")
+        or frappe.db.get_value("Customer", {"crm_deal": deal_doc.name}, "name")
+    )
+    if not cust_name and deal_doc.get("custom_company_code"):
+        cust_name = frappe.db.get_value(
+            "Customer", {"custom_project_company": deal_doc.get("custom_company_code")}, "name"
+        )
+
+    if not cust_name:
+        try:
+            from crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings import (
+                create_customer_from_deal,
+            )
+
+            settings = frappe.get_single("ERPNext CRM Settings")
+            create_customer_from_deal(deal_doc, settings)
+        except Exception as e:
+            frappe.throw(
+                f"Customer creation failed for Deal '{deal_doc.name}': {str(e)}"
+            )
+
+        cust_name = (
+            deal_doc.get("customer")
+            or frappe.db.get_value("Customer", {"crm_deal": deal_doc.name}, "name")
+        )
+        if not cust_name and deal_doc.get("custom_company_code"):
+            cust_name = frappe.db.get_value(
+                "Customer", {"custom_project_company": deal_doc.get("custom_company_code")}, "name"
+            )
+
+    if not cust_name or not frappe.db.exists("Customer", cust_name):
+        frappe.throw(
+            f"Customer creation failed for Deal '{deal_doc.name}'. Customer record was not found after creation."
+        )
+
+    cust_doc = frappe.get_doc("Customer", cust_name)
+
+    # Ensure Customer fields are set
+    if not cust_doc.get("custom_plan") and deal_doc.get("custom_plan"):
+        cust_doc.db_set("custom_plan", deal_doc.custom_plan)
+    if not cust_doc.get("crm_deal"):
+        cust_doc.db_set("crm_deal", deal_doc.name)
+
+    # STEP 2: SUBSCRIPTION CREATION / VERIFICATION
+    sub_name = frappe.db.get_value(
+        "Subscription", {"party": cust_name, "status": ["!=", "Cancelled"]}, "name"
+    )
+    if not sub_name:
+        try:
+            create_subscription(cust_doc, method=None)
+        except Exception as e:
+            frappe.throw(
+                f"Customer '{cust_name}' was created, but Subscription creation failed for Deal '{deal_doc.name}': {str(e)}"
+            )
+
+        sub_name = frappe.db.get_value(
+            "Subscription", {"party": cust_name, "status": ["!=", "Cancelled"]}, "name"
+        )
+
+    if not sub_name or not frappe.db.exists("Subscription", sub_name):
+        frappe.throw(
+            f"Customer '{cust_name}' was created successfully, but Subscription creation failed for Deal '{deal_doc.name}'."
+        )
+
+    # STEP 3: SALES INVOICE CREATION / VERIFICATION
+    invoices = frappe.get_all(
+        "Sales Invoice",
+        filters={"subscription": sub_name, "docstatus": ["!=", 2]},
+        fields=["name", "docstatus", "status"],
+    )
+
+    if not invoices:
+        frappe.throw(
+            f"Subscription '{sub_name}' was created successfully, but Sales Invoice generation failed for Customer '{cust_name}'."
+        )
+
+    inv_name = invoices[0].name
+
+    # STEP 4: PAYMENT ENTRY CREATION / VERIFICATION
+    paid_amount = flt(deal_doc.get("custom_paid_amount"))
+    pe_name = None
+
+    if paid_amount > 0:
+        pe_refs = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_doctype": "Sales Invoice", "reference_name": inv_name},
+            fields=["parent"],
+        )
+        if pe_refs:
+            for ref in pe_refs:
+                pe_status = frappe.db.get_value("Payment Entry", ref.parent, "docstatus")
+                if pe_status != 2:
+                    pe_name = ref.parent
+                    break
+
+        if not pe_name:
+            try:
+                from erpnext.accounts.doctype.payment_entry.payment_entry import (
+                    get_payment_entry,
+                )
+
+                pe = get_payment_entry("Sales Invoice", inv_name, bank_account=None)
+                pe.paid_amount = paid_amount
+                pe.received_amount = paid_amount
+
+                if deal_doc.get("custom_mode_of_payment"):
+                    pe.mode_of_payment = deal_doc.custom_mode_of_payment
+                if deal_doc.get("custom_reference_number"):
+                    pe.reference_no = deal_doc.custom_reference_number
+                if deal_doc.get("custom_payment_date"):
+                    pe.reference_date = deal_doc.custom_payment_date
+                if deal_doc.get("custom_account_paid_to"):
+                    pe.paid_to = deal_doc.custom_account_paid_to
+
+                for ref in pe.references:
+                    if ref.reference_name == inv_name:
+                        ref.allocated_amount = paid_amount
+
+                pe.insert(ignore_permissions=True)
+                pe.submit()
+                pe_name = pe.name
+            except Exception as e:
+                frappe.throw(
+                    f"Sales Invoice '{inv_name}' was created successfully, but Payment Entry creation/submission failed for Deal '{deal_doc.name}': {str(e)}"
+                )
+
+        if not pe_name or not frappe.db.exists("Payment Entry", pe_name):
+            frappe.throw(
+                f"Sales Invoice '{inv_name}' was created successfully, but Payment Entry creation failed for Deal '{deal_doc.name}'."
+            )
+
+    return {
+        "customer": cust_name,
+        "subscription": sub_name,
+        "sales_invoice": inv_name,
+        "payment_entry": pe_name,
+    }
+
+
+@frappe.whitelist()
+def rerun_deal_subscription_process(deal_name):
+    if not deal_name:
+        frappe.throw("Deal Name is required.")
+
+    deal_doc = frappe.get_doc("CRM Deal", deal_name)
+    if deal_doc.status != "Won":
+        frappe.throw(f"Rerun is only permitted for 'Won' deals. Current status: {deal_doc.status}")
+
+    # 1. Identify Customer
+    cust_name = (
+        deal_doc.get("customer")
+        or frappe.db.get_value("Customer", {"crm_deal": deal_name}, "name")
+    )
+    if not cust_name and deal_doc.get("custom_company_code"):
+        cust_name = frappe.db.get_value(
+            "Customer", {"custom_project_company": deal_doc.get("custom_company_code")}, "name"
+        )
+
+    if not cust_name:
+        frappe.throw(f"No Customer linked to Deal '{deal_name}' found to rerun.")
+
+    # 2. Cancel and Delete existing linked documents (Payment Entry, Sales Invoice, Subscription)
+    subscriptions = frappe.get_all(
+        "Subscription",
+        filters={"party": cust_name},
+        fields=["name", "docstatus"]
+    )
+
+    for sub_item in subscriptions:
+        sub_name = sub_item.name
+        invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={"subscription": sub_name},
+            fields=["name", "docstatus"]
+        )
+        for inv_item in invoices:
+            inv_name = inv_item.name
+            pe_refs = frappe.get_all(
+                "Payment Entry Reference",
+                filters={"reference_doctype": "Sales Invoice", "reference_name": inv_name},
+                fields=["parent"]
+            )
+            for ref in pe_refs:
+                pe_name = ref.parent
+                if frappe.db.exists("Payment Entry", pe_name):
+                    pe_doc = frappe.get_doc("Payment Entry", pe_name)
+                    if pe_doc.docstatus == 1:
+                        pe_doc.flags.ignore_permissions = True
+                        pe_doc.cancel()
+                    if pe_doc.docstatus in [0, 2]:
+                        frappe.delete_doc("Payment Entry", pe_name, force=True, ignore_permissions=True)
+
+            if frappe.db.exists("Sales Invoice", inv_name):
+                inv_doc = frappe.get_doc("Sales Invoice", inv_name)
+                if inv_doc.docstatus == 1:
+                    inv_doc.flags.ignore_permissions = True
+                    inv_doc.cancel()
+                if inv_doc.docstatus in [0, 2]:
+                    frappe.delete_doc("Sales Invoice", inv_name, force=True, ignore_permissions=True)
+
+        if frappe.db.exists("Subscription", sub_name):
+            sub_doc = frappe.get_doc("Subscription", sub_name)
+            if sub_doc.docstatus == 1:
+                sub_doc.flags.ignore_permissions = True
+                sub_doc.cancel()
+            if sub_doc.docstatus in [0, 2]:
+                frappe.delete_doc("Subscription", sub_name, force=True, ignore_permissions=True)
+
+    # 3. Re-run creation pipeline with strict error checking
+    result = process_deal_billing_pipeline(deal_doc)
+
+    msg = (
+        f"Re-run completed successfully for Deal '<b>{deal_name}</b>'!<br><br>"
+        f"• <b>Customer:</b> {result.get('customer')}<br>"
+        f"• <b>Subscription:</b> {result.get('subscription')}<br>"
+        f"• <b>Sales Invoice:</b> {result.get('sales_invoice')}<br>"
+    )
+    if result.get('payment_entry'):
+        msg += f"• <b>Payment Entry:</b> {result.get('payment_entry')}<br>"
+
+    return msg
+
+
+@frappe.whitelist()
+def check_deal_billing_status(deal_name):
+    if not deal_name or not frappe.db.exists("CRM Deal", deal_name):
+        return {"should_show_rerun": False}
+
+    deal = frappe.get_doc("CRM Deal", deal_name)
+    if deal.status != "Won":
+        return {"should_show_rerun": False}
+
+    sale_price = flt(deal.get("custom_sale_price") or deal.get("custom_amount"))
+    paid_amount = flt(deal.get("custom_paid_amount"))
+
+    # Show rerun button if sale price does not match paid amount
+    if sale_price != paid_amount:
+        return {"should_show_rerun": True, "reason": "Price Mismatch"}
+
+    # Show rerun button if Customer is missing
+    cust_name = deal.get("customer") or frappe.db.get_value("Customer", {"crm_deal": deal_name}, "name")
+    if not cust_name and deal.get("custom_company_code"):
+        cust_name = frappe.db.get_value("Customer", {"custom_project_company": deal.get("custom_company_code")}, "name")
+
+    if not cust_name:
+        return {"should_show_rerun": True, "reason": "Missing Customer"}
+
+    # Show rerun button if Subscription is missing
+    sub_name = frappe.db.get_value("Subscription", {"party": cust_name, "status": ["!=", "Cancelled"]}, "name")
+    if not sub_name:
+        return {"should_show_rerun": True, "reason": "Missing Subscription"}
+
+    # Show rerun button if Sales Invoice is missing
+    invoices = frappe.get_all("Sales Invoice", filters={"subscription": sub_name, "docstatus": ["!=", 2]}, limit=1)
+    if not invoices:
+        return {"should_show_rerun": True, "reason": "Missing Sales Invoice"}
+
+    inv_name = invoices[0].name
+
+    # Show rerun button if Payment Entry is missing when paid_amount > 0
+    if paid_amount > 0:
+        pe_refs = frappe.get_all(
+            "Payment Entry Reference",
+            filters={"reference_doctype": "Sales Invoice", "reference_name": inv_name},
+            fields=["parent"]
+        )
+        has_pe = False
+        if pe_refs:
+            for ref in pe_refs:
+                status = frappe.db.get_value("Payment Entry", ref.parent, "docstatus")
+                if status != 2:
+                    has_pe = True
+                    break
+        if not has_pe:
+            return {"should_show_rerun": True, "reason": "Missing Payment Entry"}
+
+    return {"should_show_rerun": False}
+
+
 

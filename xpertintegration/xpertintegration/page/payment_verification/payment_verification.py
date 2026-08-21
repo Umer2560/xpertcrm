@@ -272,7 +272,8 @@ def update_deal_status(
     if account_paid_to:
         fields_to_update["custom_account_paid_to"] = account_paid_to
 
-    if status == "Paid":
+    if status in ["Paid", "Submitted"]:
+        fields_to_update["custom_payment_status"] = "Submitted"
         fields_to_update["status"] = "Won"
 
     doc = frappe.get_doc("CRM Deal", name)
@@ -286,15 +287,10 @@ def update_deal_status(
         doc.reload()
     except Exception:
         pass
-    if status == "Paid":
-        try:
-            from crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings import (
-                create_customer_from_deal,
-            )
 
-            settings = frappe.get_single("ERPNext CRM Settings")
-            create_customer_from_deal(doc, settings)
-        except Exception as e:
-            log_integration_error("Payment Verification - Customer Creation Failed", str(e))
+    if status in ["Paid", "Submitted"]:
+        from xpertintegration.api.integration import process_deal_billing_pipeline
+        process_deal_billing_pipeline(doc)
 
     return True
+
