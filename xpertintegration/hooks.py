@@ -163,6 +163,7 @@ doc_events = {
         "on_update": [
             "xpertintegration.api.integration.broadcast_crm_deal",
             "xpertintegration.api.integration.handle_deal_payment_task",
+            "xpertintegration.api.integration.on_crm_deal_update_billing",
         ],
         "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
         "on_cancel": "xpertintegration.api.integration.broadcast_crm_document",

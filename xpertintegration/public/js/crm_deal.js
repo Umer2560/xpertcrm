@@ -16,9 +16,18 @@ frappe.ui.form.on('CRM Deal', {
 });
 
 function make_fields_editable_on_won(frm) {
-	if (frm.doc.status === 'Won') {
-		frm.set_df_property('custom_paid_amount', 'read_only', 0);
-		frm.set_df_property('custom_sale_price', 'read_only', 0);
+	if (frm.doc.status === 'Won' && !frm.is_new()) {
+		frappe.call({
+			method: 'xpertintegration.api.integration.check_deal_billing_status',
+			args: { deal_name: frm.doc.name },
+			callback: function(r) {
+				var editable = (r.message && r.message.should_show_rerun) ? 0 : 1;
+				frm.set_df_property('custom_paid_amount', 'read_only', editable);
+				frm.set_df_property('custom_sale_price', 'read_only', editable);
+				frm.set_df_property('custom_reference_number', 'read_only', editable);
+				frm.set_df_property('custom_payment_date', 'read_only', editable);
+			}
+		});
 	}
 }
 

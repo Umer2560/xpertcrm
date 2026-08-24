@@ -272,15 +272,30 @@ def update_deal_status(
     if account_paid_to:
         fields_to_update["custom_account_paid_to"] = account_paid_to
 
-    if status in ["Paid", "Submitted"]:
-        fields_to_update["custom_payment_status"] = "Submitted"
-        fields_to_update["status"] = "Won"
-
     doc = frappe.get_doc("CRM Deal", name)
     try:
         doc.reload()
     except Exception:
         pass
+
+    if status in ["Paid", "Submitted"]:
+        fields_to_update["custom_payment_status"] = "Paid"
+        fields_to_update["status"] = "Won"
+
+        paid_val = (
+            flt(amount_received)
+            if amount_received is not None and str(amount_received).strip() != ""
+            else 0
+        )
+        if paid_val <= 0:
+            paid_val = (
+                flt(doc.get("custom_paid_amount"))
+                or flt(doc.get("custom_sale_price"))
+                or flt(doc.get("custom_amount"))
+            )
+        if paid_val > 0:
+            fields_to_update["custom_paid_amount"] = paid_val
+
     doc.update(fields_to_update)
     doc.save(ignore_permissions=True)
     try:
