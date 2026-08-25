@@ -20,7 +20,7 @@ frappe.ui.form.on('CRM Deal', {
 		add_rerun_billing_button(frm);
 	},
 	custom_fetch_company: function (frm) {
-		frm.toggle_display(['custom_company_code', 'custom_project', 'deal_owner'], !!frm.doc.custom_fetch_company);
+		frm.toggle_display(['custom_company_code', 'custom_project', 'deal_owner', 'custom_activation_start_date', 'custom_activation_end_date', 'status'], !!frm.doc.custom_fetch_company);
 		if (frm.doc.custom_fetch_company) {
 			frappe.show_alert({
 				message: __('Enter Company Code and Project, then click "Fetch Company Data" or Save.'),
