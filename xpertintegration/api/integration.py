@@ -840,6 +840,24 @@ def validate_crm_deal(doc, method=None):
             )
         )
 
+    # Fetch company details from project if custom_fetch_company is checked
+    if (
+        doc.get("custom_fetch_company")
+        and doc.get("custom_company_code")
+        and doc.get("custom_project")
+    ):
+        try:
+            fetch_res = fetch_company_details_from_project(
+                company_code=doc.get("custom_company_code"),
+                project=doc.get("custom_project"),
+            )
+            if fetch_res and fetch_res.get("data"):
+                _apply_fetched_company_data_to_deal(doc, fetch_res["data"])
+        except Exception as e:
+            frappe.msgprint(
+                _(f"Fetch Company Warning: {str(e)}"), alert=True, indicator="orange"
+            )
+
     # 0. Validate project and subscription plan matching
     validate_plan_project_matching(doc)
 
@@ -1291,117 +1309,72 @@ def _extract_company_info_dict(data):
     return data if isinstance(data, dict) else {}
 
 
-def _apply_fetched_company_data_to_lead(lead_doc, company_info):
+def _apply_fetched_company_data(doc, company_info):
     """
-    Applies returned company details dictionary onto a CRM Lead document.
+    Directly maps all returned company details / callback fields onto a CRM Lead or CRM Deal document.
     """
     company_info = _extract_company_info_dict(company_info)
     if not isinstance(company_info, dict):
         return
 
-    updates = {}
+    meta = frappe.get_meta(doc.doctype)
+    valid_fields = {df.fieldname for df in meta.fields if df.fieldname}
 
-    # 1. Organization
-    company_name = (
+    aliases = {
+        "sub_domain": "custom_sub_domain",
+        "username": "custom_username",
+        "password": "custom_password",
+        "plan": "custom_plan",
+        "project": "custom_project",
+        "city": "custom_city",
+        "mobile": "mobile_no",
+        "company_name": "organization",
+        "company": "organization",
+    }
+
+    for k, v in company_info.items():
+        if v is None:
+            continue
+
+        target_field = aliases.get(k, k)
+
+        if target_field == "custom_addons_table" and isinstance(v, list):
+            doc.set("custom_addons_table", [])
+            for addon in v:
+                if isinstance(addon, dict) and addon.get("add_on"):
+                    doc.append("custom_addons_table", {"add_on": addon.get("add_on")})
+                elif isinstance(addon, str):
+                    doc.append("custom_addons_table", {"add_on": addon})
+            continue
+
+        if target_field in valid_fields or hasattr(doc, target_field):
+            if isinstance(v, (str, int, float, bool)):
+                doc.set(target_field, v)
+
+    # Organization fallback
+    comp_name = (
         company_info.get("organization")
         or company_info.get("company_name")
         or company_info.get("name")
         or company_info.get("company")
     )
-    if company_name:
-        val = str(company_name).strip()
-        lead_doc.organization = val
-        updates["organization"] = val
+    if comp_name and "organization" in valid_fields:
+        doc.set("organization", str(comp_name).strip())
 
-    # 2. First & Last Name, Lead Name
-    first_name = company_info.get("first_name") or company_info.get("lead_name")
-    if first_name:
-        val = str(first_name).strip()
-        lead_doc.first_name = val
-        updates["first_name"] = val
-
-    if company_info.get("last_name"):
-        val = str(company_info.get("last_name")).strip()
-        lead_doc.last_name = val
-        updates["last_name"] = val
-
-    if lead_doc.first_name:
-        if lead_doc.get("last_name"):
-            l_name = f"{lead_doc.first_name} {lead_doc.last_name}"
+    # Secondary name logic for CRM Lead
+    if doc.get("first_name") and doc.doctype == "CRM Lead":
+        if doc.get("last_name"):
+            doc.lead_name = f"{doc.first_name} {doc.last_name}"
         else:
-            l_name = lead_doc.first_name
-        lead_doc.lead_name = l_name
-        updates["lead_name"] = l_name
+            doc.lead_name = doc.first_name
 
-    # 3. Email
-    if company_info.get("email"):
-        val = str(company_info.get("email")).strip()
-        lead_doc.email = val
-        updates["email"] = val
 
-    # 4. Mobile & Phone
-    if company_info.get("mobile_no") or company_info.get("mobile"):
-        val = str(company_info.get("mobile_no") or company_info.get("mobile")).strip()
-        lead_doc.mobile_no = val
-        updates["mobile_no"] = val
+def _apply_fetched_company_data_to_lead(lead_doc, company_info):
+    _apply_fetched_company_data(lead_doc, company_info)
 
-    if company_info.get("phone"):
-        val = str(company_info.get("phone")).strip()
-        lead_doc.phone = val
-        updates["phone"] = val
 
-    # 5. Website & Subdomain
-    if company_info.get("website"):
-        val = str(company_info.get("website")).strip()
-        lead_doc.website = val
-        updates["website"] = val
-
-    if company_info.get("sub_domain") or company_info.get("custom_sub_domain"):
-        val = str(company_info.get("sub_domain") or company_info.get("custom_sub_domain")).strip()
-        lead_doc.custom_sub_domain = val
-        updates["custom_sub_domain"] = val
-
-    # 6. City / Territory / Industry
-    if company_info.get("city") or company_info.get("custom_city"):
-        val = str(company_info.get("city") or company_info.get("custom_city")).strip()
-        lead_doc.custom_city = val
-        updates["custom_city"] = val
-
-    if company_info.get("territory"):
-        terr_val = str(company_info.get("territory")).strip()
-        if frappe.db.exists("Territory", terr_val) or frappe.db.exists("CRM Territory", terr_val):
-            lead_doc.territory = terr_val
-            updates["territory"] = terr_val
-
-    if company_info.get("industry"):
-        val = str(company_info.get("industry")).strip()
-        lead_doc.industry = val
-        updates["industry"] = val
-
-    # 7. Project & Subscription Plan
-    if company_info.get("project") or company_info.get("custom_project"):
-        val = str(company_info.get("project") or company_info.get("custom_project")).strip()
-        lead_doc.custom_project = val
-        updates["custom_project"] = val
-
-    if company_info.get("custom_plan") or company_info.get("plan"):
-        plan_val = str(company_info.get("custom_plan") or company_info.get("plan")).strip()
-        if frappe.db.exists("Subscription Plan", plan_val):
-            plan_proj = frappe.db.get_value("Subscription Plan", plan_val, "custom_project")
-            if plan_proj and (not lead_doc.get("custom_project") or lead_doc.get("custom_project") != plan_proj):
-                lead_doc.custom_project = plan_proj
-                updates["custom_project"] = plan_proj
-            lead_doc.custom_plan = plan_val
-            updates["custom_plan"] = plan_val
-
-    # 8. Addons Table
-    if company_info.get("custom_addons_table") and isinstance(company_info.get("custom_addons_table"), list):
-        lead_doc.custom_addons_table = []
-        for addon in company_info.get("custom_addons_table"):
-            if isinstance(addon, dict) and addon.get("add_on"):
-                lead_doc.append("custom_addons_table", {"add_on": addon.get("add_on")})
-            elif isinstance(addon, str):
-                lead_doc.append("custom_addons_table", {"add_on": addon})
+def _apply_fetched_company_data_to_deal(deal_doc, company_info):
+    _apply_fetched_company_data(deal_doc, company_info)
 
 
 @frappe.whitelist()

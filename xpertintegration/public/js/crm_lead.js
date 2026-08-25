@@ -92,12 +92,30 @@ function trigger_fetch_company_details(frm) {
 					frm.reload_doc();
 				} else {
 					var data = r.message.data || {};
-					if (data.company_name || data.organization || data.name) {
-						frm.set_value("organization", data.company_name || data.organization || data.name);
+					const fieldAliases = {
+						sub_domain: 'custom_sub_domain',
+						username: 'custom_username',
+						password: 'custom_password',
+						plan: 'custom_plan',
+						project: 'custom_project',
+						city: 'custom_city',
+						mobile: 'mobile_no',
+						company_name: 'organization',
+						company: 'organization'
+					};
+
+					for (const [key, val] of Object.entries(data)) {
+						if (val === null || val === undefined) continue;
+						const targetKey = fieldAliases[key] || key;
+						if (key === 'custom_addons_table' && Array.isArray(val)) {
+							frm.set_value('custom_addons_table', val);
+						} else if (typeof val !== 'object' && frm.fields_dict[targetKey]) {
+							frm.set_value(targetKey, val);
+						}
 					}
-					if (data.first_name) frm.set_value("first_name", data.first_name);
-					if (data.last_name) frm.set_value("last_name", data.last_name);
-					if (data.email) frm.set_value("email", data.email);
+					if (data.organization || data.company_name || data.name || data.company) {
+						frm.set_value('organization', data.organization || data.company_name || data.name || data.company);
+					}
 					if (data.mobile_no || data.mobile) frm.set_value("mobile_no", data.mobile_no || data.mobile);
 					if (data.phone) frm.set_value("phone", data.phone);
 					if (data.website) frm.set_value("website", data.website);

@@ -2,6 +2,12 @@ frappe.ui.form.on('CRM Deal', {
 	refresh: function (frm) {
 		make_fields_editable_on_won(frm);
 		add_rerun_billing_button(frm);
+
+		if (frm.doc.custom_fetch_company) {
+			frm.add_custom_button(__('Fetch Company Data'), function () {
+				trigger_fetch_company_details(frm);
+			}, __('Actions'));
+		}
 	},
 	status: function (frm) {
 		make_fields_editable_on_won(frm);
@@ -12,8 +18,72 @@ frappe.ui.form.on('CRM Deal', {
 	},
 	custom_paid_amount: function (frm) {
 		add_rerun_billing_button(frm);
+	},
+	custom_fetch_company: function (frm) {
+		frm.toggle_display(['custom_company_code', 'custom_project', 'deal_owner'], !!frm.doc.custom_fetch_company);
+		if (frm.doc.custom_fetch_company) {
+			frappe.show_alert({
+				message: __('Enter Company Code and Project, then click "Fetch Company Data" or Save.'),
+				indicator: 'blue'
+			});
+		}
 	}
 });
+
+function trigger_fetch_company_details(frm) {
+	if (!frm.doc.custom_company_code || !frm.doc.custom_project) {
+		frappe.msgprint(__('Please enter both Company Code and Project before fetching details.'));
+		return;
+	}
+
+	frappe.call({
+		method: 'xpertintegration.api.integration.fetch_company_details_from_project',
+		args: {
+			company_code: frm.doc.custom_company_code,
+			custom_company_code: frm.doc.custom_company_code,
+			project: frm.doc.custom_project,
+		},
+		freeze: true,
+		freeze_message: __('Fetching Company Details from Project...'),
+		callback: function (r) {
+			if (r && r.message && r.message.status === 'success') {
+				frappe.show_alert({
+					message: r.message.message || __('Company details fetched successfully!'),
+					indicator: 'green'
+				});
+				var data = r.message.data || {};
+				const fieldAliases = {
+					sub_domain: 'custom_sub_domain',
+					username: 'custom_username',
+					password: 'custom_password',
+					plan: 'custom_plan',
+					project: 'custom_project',
+					city: 'custom_city',
+					mobile: 'mobile_no',
+					company_name: 'organization',
+					company: 'organization'
+				};
+
+				for (const [key, val] of Object.entries(data)) {
+					if (val === null || val === undefined) continue;
+					const targetKey = fieldAliases[key] || key;
+					if (key === 'custom_addons_table' && Array.isArray(val)) {
+						frm.set_value('custom_addons_table', val);
+					} else if (typeof val !== 'object' && frm.fields_dict[targetKey]) {
+						frm.set_value(targetKey, val);
+					}
+				}
+				if (data.organization || data.company_name || data.name || data.company) {
+					frm.set_value('organization', data.organization || data.company_name || data.name || data.company);
+				}
+
+				if (!frm.is_new()) {
+					frm.save();
+				}
+			}
+		}
+	});
+}
 
 function make_fields_editable_on_won(frm) {
 	if (frm.doc.status === 'Won' && !frm.is_new()) {
