@@ -1,16 +1,16 @@
 frappe.ui.form.on('CRM Deal', {
-	refresh: function(frm) {
+	refresh: function (frm) {
 		make_fields_editable_on_won(frm);
 		add_rerun_billing_button(frm);
 	},
-	status: function(frm) {
+	status: function (frm) {
 		make_fields_editable_on_won(frm);
 		add_rerun_billing_button(frm);
 	},
-	custom_sale_price: function(frm) {
+	custom_sale_price: function (frm) {
 		add_rerun_billing_button(frm);
 	},
-	custom_paid_amount: function(frm) {
+	custom_paid_amount: function (frm) {
 		add_rerun_billing_button(frm);
 	}
 });
@@ -20,13 +20,30 @@ function make_fields_editable_on_won(frm) {
 		frappe.call({
 			method: 'xpertintegration.api.integration.check_deal_billing_status',
 			args: { deal_name: frm.doc.name },
-			callback: function(r) {
+			callback: function (r) {
 				var editable = (r.message && r.message.should_show_rerun) ? 0 : 1;
-				frm.set_df_property('custom_paid_amount', 'read_only', editable);
-				frm.set_df_property('custom_sale_price', 'read_only', editable);
-				frm.set_df_property('custom_reference_number', 'read_only', editable);
-				frm.set_df_property('custom_payment_date', 'read_only', editable);
+
+				const financial_fields = [
+					'custom_paid_amount',
+					'custom_sale_price',
+					'custom_reference_number',
+					'custom_payment_date'
+				];
+
+				frm.meta.fields.forEach(function (df) {
+					if (!df.fieldname) return;
+					if (financial_fields.includes(df.fieldname)) {
+						frm.set_df_property(df.fieldname, 'read_only', editable);
+					} else {
+						frm.set_df_property(df.fieldname, 'read_only', 1);
+					}
+				});
 			}
+		});
+	} else {
+		frm.meta.fields.forEach(function (df) {
+			if (!df.fieldname) return;
+			frm.set_df_property(df.fieldname, 'read_only', df.read_only || 0);
 		});
 	}
 }
@@ -40,16 +57,16 @@ function add_rerun_billing_button(frm) {
 	frappe.call({
 		method: 'xpertintegration.api.integration.check_deal_billing_status',
 		args: { deal_name: frm.doc.name },
-		callback: function(r) {
+		callback: function (r) {
 			frm.remove_custom_button(__('Re-run Billing Process'));
 			if (r.message && r.message.should_show_rerun) {
 				var sale_price = flt(frm.doc.custom_sale_price || frm.doc.custom_amount);
 				var paid_amount = flt(frm.doc.custom_paid_amount);
 
-				frm.add_custom_button(__('Re-run Billing Process'), function() {
+				frm.add_custom_button(__('Re-run Billing Process'), function () {
 					frappe.confirm(
 						__('This will cancel existing Subscriptions, Sales Invoices, and Payment Entries for this deal and re-create them with Sale Price {0} and Paid Amount {1}. Are you sure you want to continue?', [format_currency(sale_price), format_currency(paid_amount)]),
-						function() {
+						function () {
 							frappe.call({
 								method: 'xpertintegration.api.integration.rerun_deal_subscription_process',
 								args: {
@@ -57,7 +74,7 @@ function add_rerun_billing_button(frm) {
 								},
 								freeze: true,
 								freeze_message: __('Re-running Subscription, Sales Invoice, and Payment Entry creation...'),
-								callback: function(res) {
+								callback: function (res) {
 									if (res.message) {
 										frappe.msgprint({
 											title: __('Billing Process Re-run Completed'),

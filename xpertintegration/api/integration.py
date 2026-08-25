@@ -720,7 +720,9 @@ def sync_deal_email_to_primary_contact(doc):
     if not primary_contact_name and doc.get("contact"):
         primary_contact_name = doc.contact
 
-    if not primary_contact_name or not frappe.db.exists("Contact", primary_contact_name):
+    if not primary_contact_name or not frappe.db.exists(
+        "Contact", primary_contact_name
+    ):
         return
 
     contact_doc = frappe.get_doc("Contact", primary_contact_name)
@@ -805,10 +807,14 @@ def validate_crm_deal(doc, method=None):
                 )
                 if old_vals:
                     if (
-                        flt(doc.get("custom_sale_price")) != flt(old_vals.get("custom_sale_price"))
-                        or flt(doc.get("custom_paid_amount")) != flt(old_vals.get("custom_paid_amount"))
-                        or str(doc.get("custom_reference_number") or "") != str(old_vals.get("custom_reference_number") or "")
-                        or str(doc.get("custom_payment_date") or "") != str(old_vals.get("custom_payment_date") or "")
+                        flt(doc.get("custom_sale_price"))
+                        != flt(old_vals.get("custom_sale_price"))
+                        or flt(doc.get("custom_paid_amount"))
+                        != flt(old_vals.get("custom_paid_amount"))
+                        or str(doc.get("custom_reference_number") or "")
+                        != str(old_vals.get("custom_reference_number") or "")
+                        or str(doc.get("custom_payment_date") or "")
+                        != str(old_vals.get("custom_payment_date") or "")
                     ):
                         frappe.throw(
                             _(
@@ -866,7 +872,9 @@ def validate_crm_deal(doc, method=None):
 
     if doc.get("custom_payment_status") == "Verify Payment":
         if flt(doc.get("custom_paid_amount")) <= 0:
-            fallback = flt(doc.get("custom_sale_price")) or flt(doc.get("custom_amount"))
+            fallback = flt(doc.get("custom_sale_price")) or flt(
+                doc.get("custom_amount")
+            )
             if fallback > 0:
                 doc.custom_paid_amount = fallback
 
@@ -905,36 +913,21 @@ def validate_crm_deal(doc, method=None):
         if doc.is_new():
             frappe.throw(_("A new CRM Deal cannot be set to 'Won'."))
 
-        cust_exists = (
-            doc.get("customer")
-            or doc.get("erpnext_customer")
-            or frappe.db.get_value("CRM Deal", doc.name, "erpnext_customer")
-            or frappe.db.get_value("Customer", {"crm_deal": doc.name}, "name")
-        )
-        if not cust_exists and doc.get("custom_company_code"):
-            cust_exists = frappe.db.get_value(
-                "Customer",
-                {"custom_project_company": doc.get("custom_company_code")},
-                "name",
-            )
-
-        if not cust_exists:
-            # Customer is being created: Payment status MUST be Submitted or Paid
-            if doc.get("custom_payment_status") not in ["Submitted", "Paid"]:
-                doc.custom_payment_status = "Paid"
-        else:
-            # Customer already created: If user updates deal, payment status must remain Submitted or Paid
-            if doc.get("custom_payment_status") not in ["Submitted", "Paid"]:
-                frappe.throw(
-                    _("Payment Status must be 'Submitted' or 'Paid' for a Won deal.")
-                )
+        if not doc.get("custom_payment_status"):
+            frappe.throw(_("Payment Status cannot be empty for a Won deal."))
 
         if flt(doc.get("custom_paid_amount")) <= 0:
-            fallback = flt(doc.get("custom_sale_price")) or flt(doc.get("custom_amount"))
+            fallback = flt(doc.get("custom_sale_price")) or flt(
+                doc.get("custom_amount")
+            )
             if fallback > 0:
                 doc.custom_paid_amount = fallback
             else:
-                frappe.throw(_("Paid Amount must be greater than 0 before marking the deal as Won."))
+                frappe.throw(
+                    _(
+                        "Paid Amount must be greater than 0 before marking the deal as Won."
+                    )
+                )
         _validate_deal_trial_or_win_conditions(doc, is_won=True)
     elif doc.status == "In Trial":
         _validate_deal_trial_or_win_conditions(doc, is_won=False)
@@ -2740,7 +2733,9 @@ def process_deal_billing_pipeline(deal_doc):
         # Fallback safeguard to ensure deal_doc has organization or lead_name for Customer creation
         if not deal_doc.organization and not deal_doc.lead_name:
             if deal_doc.lead:
-                deal_doc.lead_name = frappe.db.get_value("CRM Lead", deal_doc.lead, "lead_name")
+                deal_doc.lead_name = frappe.db.get_value(
+                    "CRM Lead", deal_doc.lead, "lead_name"
+                )
             if not deal_doc.lead_name and deal_doc.email:
                 deal_doc.lead_name = deal_doc.email.split("@")[0].capitalize()
             if not deal_doc.lead_name:
@@ -3035,8 +3030,7 @@ def check_deal_billing_status(deal_name):
 
     # Show rerun button if Customer is missing
     cust_name = (
-        deal.get("customer")
-        or deal.get("erpnext_customer")
+        deal.get("erpnext_customer")
         or frappe.db.get_value("CRM Deal", deal_name, "erpnext_customer")
         or frappe.db.get_value("Customer", {"crm_deal": deal_name}, "name")
     )
@@ -3141,9 +3135,7 @@ def rerun_incomplete_billing_deals(exclude_deals=None):
             continue
 
         # Identify Customer
-        cust_name = frappe.db.get_value(
-            "Customer", {"crm_deal": deal_name}, "name"
-        )
+        cust_name = frappe.db.get_value("Customer", {"crm_deal": deal_name}, "name")
         if not cust_name and deal.custom_company_code:
             cust_name = frappe.db.get_value(
                 "Customer", {"custom_project_company": deal.custom_company_code}, "name"
