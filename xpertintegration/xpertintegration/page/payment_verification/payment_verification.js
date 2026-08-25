@@ -187,7 +187,7 @@ class PaymentVerificationPage {
 				options: 'CRM Deal',
 				fieldname: 'crm_deal',
 				placeholder: 'Filter by CRM Deal...',
-				get_query: () => ({ filters: { custom_payment_status: 'Verify Payment' } }),
+				get_query: () => ({ filters: { custom_payment_status: 'Verify Payment', status: ['in', ['In Trial', 'In Trail']] } }),
 				change: () => {
 					let val = deal_control.get_value();
 					if (val !== me.filters.crm_deal) {
@@ -309,7 +309,7 @@ class PaymentVerificationPage {
 			
 			// Mode of Payment Control
 			let mop_wrapper = card.find('.pv-mode-of-payment-control');
-			let mop_value = mop_wrapper.data('value');
+			let mop_value = mop_wrapper.data('value') || 'Wire Transfer';
 			let mop_control = frappe.ui.form.make_control({
 				df: {
 					fieldtype: 'Link',
@@ -373,6 +373,7 @@ class PaymentVerificationPage {
 			let tr = btn.closest('.pv-card');
 			let status = tr.find('.action-select').val();
 			let remarks = tr.find('.remarks-input').val();
+			let reference_number = tr.find('.reference-number-input').val();
 			let amount_received = tr.find('.amount-received-input').val();
 			
 			let mode_of_payment = me.controls[name] && me.controls[name].mop ? me.controls[name].mop.get_value() : null;
@@ -388,7 +389,7 @@ class PaymentVerificationPage {
 				return;
 			}
 
-			me.call_update_status(record_type, name, status, remarks, amount_received, mode_of_payment, account_paid_to);
+			me.call_update_status(record_type, name, status, remarks, amount_received, mode_of_payment, account_paid_to, reference_number);
 		});
 
 		// Pagination Events
@@ -408,7 +409,7 @@ class PaymentVerificationPage {
 		});
 	}
 
-	call_update_status(record_type, name, status, remarks, amount_received, mode_of_payment, account_paid_to) {
+	call_update_status(record_type, name, status, remarks, amount_received, mode_of_payment, account_paid_to, reference_number) {
 		frappe.call({
 			method: 'xpertintegration.xpertintegration.page.payment_verification.payment_verification.update_verification_record',
 			args: {
@@ -418,7 +419,8 @@ class PaymentVerificationPage {
 				remarks: remarks,
 				amount_received: amount_received,
 				mode_of_payment: mode_of_payment,
-				account_paid_to: account_paid_to
+				account_paid_to: account_paid_to,
+				reference_number: reference_number
 			},
 			callback: (r) => {
 				if (!r.exc) {

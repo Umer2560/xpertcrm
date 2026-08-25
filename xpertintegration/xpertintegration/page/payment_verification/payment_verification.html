@@ -27,11 +27,6 @@
         {% } %}
 
         <div class="pv-details-grid mt-2">
-            {% if (row.custom_reference_number) { %}
-            <span class="pv-label"><i class="fa fa-hashtag fa-fw mr-1"></i> Ref #</span>
-            <span class="pv-value">{{ row.custom_reference_number }}</span>
-            {% } %}
-
             {% if (row.custom_posting_date) { %}
             <span class="pv-label"><i class="fa fa-calendar-o fa-fw mr-1"></i> Posted</span>
             <span class="pv-value">{{ row.custom_posting_date }}</span>
@@ -82,12 +77,16 @@
 
     <!-- Action Column -->
     <div class="pv-col-action">
+        <label class="pv-action-label">REF CODE / REFERENCE NUMBER</label>
+        <input type="text" class="form-control reference-number-input mb-3"
+            value="{{ row.custom_reference_number || '' }}" placeholder="Reference Number..." />
+
         <label class="pv-action-label">AMOUNT RECEIVED</label>
         <input type="number" class="form-control amount-received-input mb-3"
             value="{{ row.custom_paid_amount || row.custom_amount }}" />
 
         <label class="pv-action-label">MODE OF PAYMENT</label>
-        <div class="pv-mode-of-payment-control mb-3" data-value="{{ row.custom_mode_of_payment || "" }}"></div>
+        <div class="pv-mode-of-payment-control mb-3" data-value="{{ row.custom_mode_of_payment || 'Wire Transfer' }}"></div>
 
         <label class="pv-action-label">ACCOUNT PAID TO</label>
         <div class="pv-account-paid-to-control mb-3" data-value="{{ row.custom_account_paid_to || "" }}"></div>

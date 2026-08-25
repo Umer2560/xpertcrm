@@ -20,7 +20,10 @@ def get_pending_verification_records(
         fetch_pes = True
 
     if fetch_deals:
-        filters = {"custom_payment_status": "Verify Payment"}
+        filters = {
+            "custom_payment_status": "Verify Payment",
+            "status": ["in", ["In Trial", "In Trail"]],
+        }
         if project:
             filters["custom_project"] = project
         if crm_deal and payment_type == "Deal Invoice Payment":
@@ -182,10 +185,11 @@ def update_verification_record(
     amount_received=None,
     mode_of_payment=None,
     account_paid_to=None,
+    reference_number=None,
 ):
     if record_type == "Deal Invoice Payment":
         return update_deal_status(
-            name, status, remarks, amount_received, mode_of_payment, account_paid_to
+            name, status, remarks, amount_received, mode_of_payment, account_paid_to, reference_number
         )
 
     elif record_type == "Sales Invoice Payment":
@@ -222,6 +226,8 @@ def update_verification_record(
             pe.mode_of_payment = mode_of_payment
         if account_paid_to:
             pe.paid_to = account_paid_to
+        if reference_number:
+            pe.reference_no = reference_number
 
         pe.flags.ignore_permissions = True
 
@@ -258,6 +264,7 @@ def update_deal_status(
     amount_received=None,
     mode_of_payment=None,
     account_paid_to=None,
+    reference_number=None,
 ):
     fields_to_update = {"custom_payment_status": status}
     if remarks:
@@ -271,6 +278,9 @@ def update_deal_status(
 
     if account_paid_to:
         fields_to_update["custom_account_paid_to"] = account_paid_to
+
+    if reference_number:
+        fields_to_update["custom_reference_number"] = reference_number
 
     doc = frappe.get_doc("CRM Deal", name)
     try:

@@ -759,6 +759,40 @@ def validate_crm_deal(doc, method=None):
     # Sync email to primary contact so it does not get cleared
     sync_deal_email_to_primary_contact(doc)
 
+    # Validate email, phone/mobile_no, project, and plan when deal is created from a lead
+    if doc.is_new() and doc.get("lead"):
+        lead_email = (doc.get("email") or "").strip() or (frappe.db.get_value("CRM Lead", doc.lead, "email") or "").strip()
+        lead_phone = (
+            (doc.get("mobile_no") or doc.get("phone") or "").strip()
+            or (frappe.db.get_value("CRM Lead", doc.lead, "mobile_no") or "").strip()
+            or (frappe.db.get_value("CRM Lead", doc.lead, "phone") or "").strip()
+        )
+        lead_project = (doc.get("custom_project") or "").strip() or (frappe.db.get_value("CRM Lead", doc.lead, "custom_project") or "").strip()
+        lead_plan = (doc.get("custom_plan") or "").strip() or (frappe.db.get_value("CRM Lead", doc.lead, "custom_plan") or "").strip()
+
+        if not lead_email:
+            frappe.throw(
+                _("Email is mandatory to convert Lead to Deal. Please update the Lead with an email address.")
+            )
+        if not lead_phone:
+            frappe.throw(
+                _("Mobile Number / Phone is mandatory to convert Lead to Deal. Please update the Lead with a phone or mobile number.")
+            )
+        if not lead_project:
+            frappe.throw(
+                _("Project is mandatory to convert Lead to Deal. Please select a project.")
+            )
+        if not lead_plan:
+            frappe.throw(
+                _("Subscription Plan is mandatory to convert Lead to Deal. Please select a plan.")
+            )
+
+    # Validate Payment Status requires In Trial status
+    if doc.get("custom_payment_status") == "Verify Payment" and doc.get("status") not in ["In Trial", "In Trail"]:
+        frappe.throw(
+            _("Payment Status cannot be set to 'Verify Payment' until the Deal status is 'In Trial'.")
+        )
+
     # 0. Validate project and subscription plan matching
     validate_plan_project_matching(doc)
 
@@ -1287,16 +1321,53 @@ def custom_convert_to_deal(
     existing_organization=None,
 ):
     lead_doc = frappe.get_cached_doc("CRM Lead", lead)
-    if not lead_doc.email or not str(lead_doc.email).strip():
+    deal_dict = (
+        deal
+        if isinstance(deal, dict)
+        else (frappe.parse_json(deal) if isinstance(deal, str) and deal else {})
+    )
+
+    email = (
+        (lead_doc.get("email") or "").strip()
+        or (deal_dict.get("email") or deal_dict.get("primary_email") or "").strip()
+    )
+    phone = (
+        (lead_doc.get("mobile_no") or "").strip()
+        or (lead_doc.get("phone") or "").strip()
+        or (deal_dict.get("mobile_no") or deal_dict.get("phone") or "").strip()
+    )
+
+    project = (
+        (lead_doc.get("custom_project") or lead_doc.get("project") or "").strip()
+        or (deal_dict.get("custom_project") or deal_dict.get("project") or "").strip()
+    )
+    plan = (
+        (lead_doc.get("custom_plan") or lead_doc.get("plan") or lead_doc.get("custom_subscription_plan") or "").strip()
+        or (deal_dict.get("custom_plan") or deal_dict.get("plan") or deal_dict.get("custom_subscription_plan") or "").strip()
+    )
+
+    if not email:
         frappe.throw(
             _(
                 "Email is mandatory to convert Lead to Deal. Please update the Lead with an email address."
             )
         )
-    if not lead_doc.mobile_no or not str(lead_doc.mobile_no).strip():
+    if not phone:
         frappe.throw(
             _(
-                "Mobile Number is mandatory to convert Lead to Deal. Please update the Lead with a mobile number."
+                "Mobile Number / Phone is mandatory to convert Lead to Deal. Please update the Lead with a phone or mobile number."
+            )
+        )
+    if not project:
+        frappe.throw(
+            _(
+                "Project is mandatory to convert Lead to Deal. Please select a project."
+            )
+        )
+    if not plan:
+        frappe.throw(
+            _(
+                "Subscription Plan is mandatory to convert Lead to Deal. Please select a plan."
             )
         )
 
