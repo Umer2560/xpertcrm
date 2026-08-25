@@ -4,6 +4,7 @@ import base64
 import mimetypes
 import os
 import requests
+import time
 
 import frappe
 from frappe import _
@@ -404,74 +405,102 @@ def send_api_request(
             timeout=60,
         )
         res_code = response.status_code
-        response.raise_for_status()
 
-        try:
-            resp_json = response.json()
-            resp_payload = resp_json
+        # Attempt to parse JSON response body regardless of HTTP status code
+        resp_json = None
+        if response.text:
+            try:
+                resp_json = response.json()
+            except Exception:
+                try:
+                    import ast
+                    resp_json = ast.literal_eval(response.text)
+                except Exception:
+                    try:
+                        resp_json = frappe.parse_json(response.text)
+                    except Exception:
+                        resp_json = None
 
-            has_remote_error = False
-            remote_error_msg = None
+        # If remote server returns success/callback_data in body despite 500 status code, treat as success
+        is_body_success = False
+        if isinstance(resp_json, dict):
+            if (
+                resp_json.get("status") == "success"
+                or "callback_data" in resp_json
+                or (isinstance(resp_json.get("message"), dict) and resp_json.get("message", {}).get("status") == "success")
+            ):
+                is_body_success = True
 
-            if isinstance(resp_json, dict):
-                if resp_json.get("status") in ["failed", "error"]:
-                    has_remote_error = True
-                    remote_error_msg = (
-                        resp_json.get("error")
-                        or resp_json.get("message")
-                        or "Remote API returned failed status"
-                    )
-                elif resp_json.get("exc") or resp_json.get("exception"):
-                    has_remote_error = True
-                    remote_error_msg = resp_json.get("exc") or resp_json.get(
-                        "exception"
-                    )
-                elif isinstance(resp_json.get("message"), dict) and resp_json.get(
-                    "message", {}
-                ).get("status") in ["failed", "error"]:
-                    has_remote_error = True
-                    remote_error_msg = resp_json.get("message", {}).get(
-                        "error"
-                    ) or resp_json.get("message", {}).get("message")
+        if not is_body_success:
+            response.raise_for_status()
 
-            if has_remote_error:
-                status = "Failed"
-                err_trace = str(remote_error_msg)
-                remarks = f"Remote API Error: {str(remote_error_msg)[:140]}"
-                ret_val = {
-                    "status": "failed",
-                    "error": remote_error_msg,
-                    "data": resp_json,
-                }
-            else:
-                if source_doctype and source_docname and isinstance(resp_json, dict):
-                    callback_data = resp_json.get("message", {}).get("callback_data")
-                    if isinstance(callback_data, dict):
-                        frappe.db.set_value(
-                            source_doctype, source_docname, callback_data
-                        )
-                ret_val = {"status": "success", "data": resp_json}
-        except ValueError:
-            resp_payload = response.text
-            ret_val = {"status": "success", "text": response.text}
+        resp_payload = resp_json if resp_json is not None else response.text
 
-    except requests.exceptions.HTTPError:
-        status = "Failed"
-        res_code = getattr(response, "status_code", 500)
-        resp_payload = getattr(response, "text", "")
-        err_msg = (
-            f"HTTP Error {res_code} from {target_url}\n"
-            f"Response: {resp_payload}\n"
-            f"Payload: {json.dumps(payload, default=str)}"
-        )
-        logger.error(err_msg)
-        err_trace = frappe.get_traceback()
-        remarks = f"HTTP Error {res_code}"
-        ret_val = {
-            "status": "failed",
-            "error": resp_payload,
-            "status_code": res_code,
-        }
+        has_remote_error = False
+        remote_error_msg = None
+
+        if isinstance(resp_json, dict):
+            if resp_json.get("status") in ["failed", "error"]:
+                has_remote_error = True
+                remote_error_msg = (
+                    resp_json.get("error")
+                    or resp_json.get("message")
+                    or "Remote API returned failed status"
+                )
+            elif resp_json.get("exc") or resp_json.get("exception"):
+                has_remote_error = True
+                remote_error_msg = resp_json.get("exc") or resp_json.get("exception")
+
+        if has_remote_error:
+            status = "Failed"
+            err_trace = str(remote_error_msg)
+            remarks = f"Remote API Error: {str(remote_error_msg)[:140]}"
+            ret_val = {
+                "status": "failed",
+                "error": remote_error_msg,
+                "data": resp_json,
+                "status_code": res_code,
+            }
+        else:
+            ret_val = {"status": "success", "data": resp_json, "status_code": res_code}
+
+    except requests.exceptions.HTTPError as e:
+        # Check if HTTPError response text actually contains a valid success payload
+        parsed_err = None
+        if hasattr(e, "response") and e.response is not None and e.response.text:
+            try:
+                parsed_err = e.response.json()
+            except Exception:
+                try:
+                    import ast
+                    parsed_err = ast.literal_eval(e.response.text)
+                except Exception:
+                    try:
+                        parsed_err = frappe.parse_json(e.response.text)
+                    except Exception:
+                        parsed_err = None
+
+        if isinstance(parsed_err, dict) and (parsed_err.get("status") == "success" or "callback_data" in parsed_err):
+            status = "Success"
+            resp_payload = parsed_err
+            ret_val = {"status": "success", "data": parsed_err, "status_code": res_code}
+        else:
+            status = "Failed"
+            res_code = getattr(response, "status_code", 500)
+            resp_payload = getattr(response, "text", "")
+            err_msg = (
+                f"HTTP Error {res_code} from {target_url}\n"
+                f"Response: {resp_payload}\n"
+                f"Payload: {json.dumps(payload, default=str)}"
+            )
+            logger.error(err_msg)
+            err_trace = frappe.get_traceback()
+            remarks = f"HTTP Error {res_code}"
+            ret_val = {
+                "status": "failed",
+                "error": resp_payload,
+                "status_code": res_code,
+            }
     except requests.exceptions.RequestException as e:
         status = "Failed"
         err_msg = (
@@ -761,36 +790,54 @@ def validate_crm_deal(doc, method=None):
 
     # Validate email, phone/mobile_no, project, and plan when deal is created from a lead
     if doc.is_new() and doc.get("lead"):
-        lead_email = (doc.get("email") or "").strip() or (frappe.db.get_value("CRM Lead", doc.lead, "email") or "").strip()
+        lead_email = (doc.get("email") or "").strip() or (
+            frappe.db.get_value("CRM Lead", doc.lead, "email") or ""
+        ).strip()
         lead_phone = (
             (doc.get("mobile_no") or doc.get("phone") or "").strip()
             or (frappe.db.get_value("CRM Lead", doc.lead, "mobile_no") or "").strip()
             or (frappe.db.get_value("CRM Lead", doc.lead, "phone") or "").strip()
         )
-        lead_project = (doc.get("custom_project") or "").strip() or (frappe.db.get_value("CRM Lead", doc.lead, "custom_project") or "").strip()
-        lead_plan = (doc.get("custom_plan") or "").strip() or (frappe.db.get_value("CRM Lead", doc.lead, "custom_plan") or "").strip()
+        lead_project = (doc.get("custom_project") or "").strip() or (
+            frappe.db.get_value("CRM Lead", doc.lead, "custom_project") or ""
+        ).strip()
+        lead_plan = (doc.get("custom_plan") or "").strip() or (
+            frappe.db.get_value("CRM Lead", doc.lead, "custom_plan") or ""
+        ).strip()
 
         if not lead_email:
             frappe.throw(
-                _("Email is mandatory to convert Lead to Deal. Please update the Lead with an email address.")
+                _(
+                    "Email is mandatory to convert Lead to Deal. Please update the Lead with an email address."
+                )
             )
         if not lead_phone:
             frappe.throw(
-                _("Mobile Number / Phone is mandatory to convert Lead to Deal. Please update the Lead with a phone or mobile number.")
+                _(
+                    "Mobile Number / Phone is mandatory to convert Lead to Deal. Please update the Lead with a phone or mobile number."
+                )
             )
         if not lead_project:
             frappe.throw(
-                _("Project is mandatory to convert Lead to Deal. Please select a project.")
+                _(
+                    "Project is mandatory to convert Lead to Deal. Please select a project."
+                )
             )
         if not lead_plan:
             frappe.throw(
-                _("Subscription Plan is mandatory to convert Lead to Deal. Please select a plan.")
+                _(
+                    "Subscription Plan is mandatory to convert Lead to Deal. Please select a plan."
+                )
             )
 
     # Validate Payment Status requires In Trial status
-    if doc.get("custom_payment_status") == "Verify Payment" and doc.get("status") not in ["In Trial", "In Trail"]:
+    if doc.get("custom_payment_status") == "Verify Payment" and doc.get(
+        "status"
+    ) not in ["In Trial", "In Trail"]:
         frappe.throw(
-            _("Payment Status cannot be set to 'Verify Payment' until the Deal status is 'In Trial'.")
+            _(
+                "Payment Status cannot be set to 'Verify Payment' until the Deal status is 'In Trial'."
+            )
         )
 
     # 0. Validate project and subscription plan matching
@@ -1082,7 +1129,7 @@ def validate_crm_fields(doc, method=None):
     company_code = (doc.get("custom_company_code") or "").strip()
     if company_code:
         filters = [["custom_company_code", "=", company_code]]
-        if not doc.is_new() and doc.name:
+        if doc.name and frappe.db.exists("CRM Lead", doc.name):
             filters.append(["name", "!=", doc.name])
 
         existing_lead = frappe.db.exists("CRM Lead", filters)
@@ -1109,6 +1156,252 @@ def validate_crm_fields(doc, method=None):
         )
         if user_with_code:
             doc.lead_owner = user_with_code
+
+    # Fetch company details from project if custom_fetch_company is checked
+    if (
+        doc.get("custom_fetch_company")
+        and doc.get("custom_company_code")
+        and doc.get("custom_project")
+    ):
+        try:
+            fetch_res = fetch_company_details_from_project(
+                company_code=doc.get("custom_company_code"),
+                project=doc.get("custom_project"),
+            )
+            if fetch_res and fetch_res.get("data"):
+                _apply_fetched_company_data_to_lead(doc, fetch_res["data"])
+        except Exception as e:
+            frappe.msgprint(
+                _(f"Fetch Company Warning: {str(e)}"), alert=True, indicator="orange"
+            )
+
+
+@frappe.whitelist()
+def fetch_company_details_from_project(company_code=None, custom_company_code=None, project=None, lead_id=None):
+    """
+    Sends an outbound API call to the specified Project endpoint with
+    payload: {"doctype": "Fetch Company", "company_code": comp_code, "custom_company_code": comp_code}.
+    Returns company details and updates target Lead if lead_id is provided.
+    """
+    comp_code = (company_code or custom_company_code or "").strip()
+    project = (project or "").strip()
+
+    if not comp_code:
+        frappe.throw(_("Company Code is required to fetch company details."))
+
+    if not project:
+        frappe.throw(_("Project is required to fetch company details."))
+
+    project_id = _normalize_project_id(project)
+    target_url, headers = get_project_settings(project_id, throw=True)
+
+    payload = {
+        "doctype": "Fetch Company",
+        "company_code": comp_code,
+        "custom_company_code": comp_code,
+    }
+
+    start_time = time.time()
+    try:
+        response = send_api_request(
+            target_url=target_url,
+            headers=headers,
+            payload=payload,
+            source_doctype="CRM Lead",
+            source_docname=lead_id,
+        )
+
+        res_code = response.get("status_code", 500)
+        resp_data = response.get("data", {})
+
+        is_success = (
+            res_code == 200
+            or (isinstance(resp_data, dict) and resp_data.get("status") == "success")
+            or (isinstance(resp_data, dict) and "callback_data" in resp_data)
+        )
+
+        if is_success:
+            company_info = _extract_company_info_dict(resp_data)
+            if not company_info or not any(key in company_info for key in ["organization", "company_name", "first_name", "email", "mobile_no", "name"]):
+                frappe.throw(_(f"No company details found for Company Code '{comp_code}'. Please verify the Company Code and Project."))
+
+            if lead_id and frappe.db.exists("CRM Lead", lead_id):
+                lead_doc = frappe.get_doc("CRM Lead", lead_id)
+                _apply_fetched_company_data_to_lead(lead_doc, company_info)
+                lead_doc.flags.ignore_validate = True
+                lead_doc.flags.ignore_mandatory = True
+                lead_doc.save(ignore_permissions=True)
+                frappe.db.commit()
+
+            return {
+                "status": "success",
+                "message": (resp_data.get("message") if isinstance(resp_data, dict) and isinstance(resp_data.get("message"), str) else None) or _("Company details fetched successfully."),
+                "data": company_info,
+            }
+        else:
+            raw_msg = (
+                resp_data.get("message")
+                if isinstance(resp_data, dict) and resp_data.get("message")
+                else None
+            )
+            if not raw_msg or str(raw_msg).strip() in ["None", "null", ""]:
+                raw_msg = f"No company details found for Company Code '{comp_code}' in project '{project}'."
+            frappe.throw(_(raw_msg))
+
+    except Exception as e:
+        log_integration_error(
+            title=f"Fetch Company API Failed ({comp_code})",
+            message=frappe.get_traceback(),
+        )
+        msg_str = str(e)
+        frappe.throw(msg_str)
+
+
+def _extract_company_info_dict(data):
+    """
+    Recursively extracts the inner company information dictionary from nested payloads.
+    """
+    if isinstance(data, str):
+        try:
+            import ast
+            data = ast.literal_eval(data)
+        except Exception:
+            try:
+                data = frappe.parse_json(data)
+            except Exception:
+                data = {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    for _ in range(5):
+        if "organization" in data or "company_name" in data or "first_name" in data or "custom_plan" in data:
+            break
+        if isinstance(data.get("callback_data"), dict):
+            data = data.get("callback_data")
+        elif isinstance(data.get("message"), dict):
+            data = data.get("message")
+        elif isinstance(data.get("data"), dict):
+            data = data.get("data")
+        elif isinstance(data.get("company"), dict):
+            data = data.get("company")
+        else:
+            break
+
+    return data if isinstance(data, dict) else {}
+
+
+def _apply_fetched_company_data_to_lead(lead_doc, company_info):
+    """
+    Applies returned company details dictionary onto a CRM Lead document.
+    """
+    company_info = _extract_company_info_dict(company_info)
+    if not isinstance(company_info, dict):
+        return
+
+    updates = {}
+
+    # 1. Organization
+    company_name = (
+        company_info.get("organization")
+        or company_info.get("company_name")
+        or company_info.get("name")
+        or company_info.get("company")
+    )
+    if company_name:
+        val = str(company_name).strip()
+        lead_doc.organization = val
+        updates["organization"] = val
+
+    # 2. First & Last Name, Lead Name
+    first_name = company_info.get("first_name") or company_info.get("lead_name")
+    if first_name:
+        val = str(first_name).strip()
+        lead_doc.first_name = val
+        updates["first_name"] = val
+
+    if company_info.get("last_name"):
+        val = str(company_info.get("last_name")).strip()
+        lead_doc.last_name = val
+        updates["last_name"] = val
+
+    if lead_doc.first_name:
+        if lead_doc.get("last_name"):
+            l_name = f"{lead_doc.first_name} {lead_doc.last_name}"
+        else:
+            l_name = lead_doc.first_name
+        lead_doc.lead_name = l_name
+        updates["lead_name"] = l_name
+
+    # 3. Email
+    if company_info.get("email"):
+        val = str(company_info.get("email")).strip()
+        lead_doc.email = val
+        updates["email"] = val
+
+    # 4. Mobile & Phone
+    if company_info.get("mobile_no") or company_info.get("mobile"):
+        val = str(company_info.get("mobile_no") or company_info.get("mobile")).strip()
+        lead_doc.mobile_no = val
+        updates["mobile_no"] = val
+
+    if company_info.get("phone"):
+        val = str(company_info.get("phone")).strip()
+        lead_doc.phone = val
+        updates["phone"] = val
+
+    # 5. Website & Subdomain
+    if company_info.get("website"):
+        val = str(company_info.get("website")).strip()
+        lead_doc.website = val
+        updates["website"] = val
+
+    if company_info.get("sub_domain") or company_info.get("custom_sub_domain"):
+        val = str(company_info.get("sub_domain") or company_info.get("custom_sub_domain")).strip()
+        lead_doc.custom_sub_domain = val
+        updates["custom_sub_domain"] = val
+
+    # 6. City / Territory / Industry
+    if company_info.get("city") or company_info.get("custom_city"):
+        val = str(company_info.get("city") or company_info.get("custom_city")).strip()
+        lead_doc.custom_city = val
+        updates["custom_city"] = val
+
+    if company_info.get("territory"):
+        terr_val = str(company_info.get("territory")).strip()
+        if frappe.db.exists("Territory", terr_val) or frappe.db.exists("CRM Territory", terr_val):
+            lead_doc.territory = terr_val
+            updates["territory"] = terr_val
+
+    if company_info.get("industry"):
+        val = str(company_info.get("industry")).strip()
+        lead_doc.industry = val
+        updates["industry"] = val
+
+    # 7. Project & Subscription Plan
+    if company_info.get("project") or company_info.get("custom_project"):
+        val = str(company_info.get("project") or company_info.get("custom_project")).strip()
+        lead_doc.custom_project = val
+        updates["custom_project"] = val
+
+    if company_info.get("custom_plan") or company_info.get("plan"):
+        plan_val = str(company_info.get("custom_plan") or company_info.get("plan")).strip()
+        if frappe.db.exists("Subscription Plan", plan_val):
+            plan_proj = frappe.db.get_value("Subscription Plan", plan_val, "custom_project")
+            if plan_proj and (not lead_doc.get("custom_project") or lead_doc.get("custom_project") != plan_proj):
+                lead_doc.custom_project = plan_proj
+                updates["custom_project"] = plan_proj
+            lead_doc.custom_plan = plan_val
+            updates["custom_plan"] = plan_val
+
+    # 8. Addons Table
+    if company_info.get("custom_addons_table") and isinstance(company_info.get("custom_addons_table"), list):
+        lead_doc.custom_addons_table = []
+        for addon in company_info.get("custom_addons_table"):
+            if isinstance(addon, dict) and addon.get("add_on"):
+                lead_doc.append("custom_addons_table", {"add_on": addon.get("add_on")})
+            elif isinstance(addon, str):
+                lead_doc.append("custom_addons_table", {"add_on": addon})
 
 
 @frappe.whitelist()
@@ -1327,10 +1620,9 @@ def custom_convert_to_deal(
         else (frappe.parse_json(deal) if isinstance(deal, str) and deal else {})
     )
 
-    email = (
-        (lead_doc.get("email") or "").strip()
-        or (deal_dict.get("email") or deal_dict.get("primary_email") or "").strip()
-    )
+    email = (lead_doc.get("email") or "").strip() or (
+        deal_dict.get("email") or deal_dict.get("primary_email") or ""
+    ).strip()
     phone = (
         (lead_doc.get("mobile_no") or "").strip()
         or (lead_doc.get("phone") or "").strip()
@@ -1338,13 +1630,21 @@ def custom_convert_to_deal(
     )
 
     project = (
-        (lead_doc.get("custom_project") or lead_doc.get("project") or "").strip()
-        or (deal_dict.get("custom_project") or deal_dict.get("project") or "").strip()
-    )
+        lead_doc.get("custom_project") or lead_doc.get("project") or ""
+    ).strip() or (
+        deal_dict.get("custom_project") or deal_dict.get("project") or ""
+    ).strip()
     plan = (
-        (lead_doc.get("custom_plan") or lead_doc.get("plan") or lead_doc.get("custom_subscription_plan") or "").strip()
-        or (deal_dict.get("custom_plan") or deal_dict.get("plan") or deal_dict.get("custom_subscription_plan") or "").strip()
-    )
+        lead_doc.get("custom_plan")
+        or lead_doc.get("plan")
+        or lead_doc.get("custom_subscription_plan")
+        or ""
+    ).strip() or (
+        deal_dict.get("custom_plan")
+        or deal_dict.get("plan")
+        or deal_dict.get("custom_subscription_plan")
+        or ""
+    ).strip()
 
     if not email:
         frappe.throw(
@@ -1360,9 +1660,7 @@ def custom_convert_to_deal(
         )
     if not project:
         frappe.throw(
-            _(
-                "Project is mandatory to convert Lead to Deal. Please select a project."
-            )
+            _("Project is mandatory to convert Lead to Deal. Please select a project.")
         )
     if not plan:
         frappe.throw(

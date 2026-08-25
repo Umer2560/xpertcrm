@@ -14,5 +14,53 @@
   "property_type": "Check",
   "row_name": null,
   "value": "1"
+ },
+ {
+  "default_value": null,
+  "doc_type": "CRM Lead",
+  "docstatus": 0,
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "field_name": "custom_company_code",
+  "is_system_generated": 0,
+  "modified": "2026-08-25 12:44:22.821070",
+  "module": "XpertIntegration",
+  "name": "CRM Lead-custom_company_code-depends_on",
+  "property": "depends_on",
+  "property_type": "Data",
+  "row_name": null,
+  "value": "eval:doc.custom_fetch_company == 1"
+ },
+ {
+  "default_value": null,
+  "doc_type": "CRM Lead",
+  "docstatus": 0,
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "field_name": "custom_project",
+  "is_system_generated": 0,
+  "modified": "2026-08-25 12:44:22.910869",
+  "module": "XpertIntegration",
+  "name": "CRM Lead-custom_project-depends_on",
+  "property": "depends_on",
+  "property_type": "Data",
+  "row_name": null,
+  "value": "eval:doc.custom_fetch_company == 1"
+ },
+ {
+  "default_value": null,
+  "doc_type": "CRM Lead",
+  "docstatus": 0,
+  "doctype": "Property Setter",
+  "doctype_or_field": "DocField",
+  "field_name": "lead_owner",
+  "is_system_generated": 0,
+  "modified": "2026-08-25 12:44:22.937459",
+  "module": "XpertIntegration",
+  "name": "CRM Lead-lead_owner-depends_on",
+  "property": "depends_on",
+  "property_type": "Data",
+  "row_name": null,
+  "value": "eval:doc.custom_fetch_company == 1"
  }
 ]
