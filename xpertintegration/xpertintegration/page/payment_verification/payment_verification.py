@@ -307,6 +307,8 @@ def update_deal_status(
             fields_to_update["custom_paid_amount"] = paid_val
 
     doc.update(fields_to_update)
+    doc.flags.ignore_mandatory = True
+    doc.flags.ignore_validate = True
     doc.save(ignore_permissions=True)
     try:
         doc.reload()

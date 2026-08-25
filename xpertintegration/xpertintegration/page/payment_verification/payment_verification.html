@@ -26,29 +26,39 @@
         </span>
         {% } %}
 
-        <div class="pv-details-grid mt-2">
+        <div class="pv-details-grid mt-3">
             {% if (row.custom_posting_date) { %}
-            <span class="pv-label"><i class="fa fa-calendar-o fa-fw mr-1"></i> Posted</span>
-            <span class="pv-value">{{ row.custom_posting_date }}</span>
+            <div class="pv-detail-item">
+                <span class="pv-label"><i class="fa fa-calendar-o fa-fw mr-1 text-muted"></i> Posted</span>
+                <span class="pv-value">{{ row.custom_posting_date }}</span>
+            </div>
             {% } %}
 
             {% if (row.custom_payment_date) { %}
-            <span class="pv-label"><i class="fa fa-calendar-check-o fa-fw mr-1"></i> Paid On</span>
-            <span class="pv-value">{{ row.custom_payment_date }}</span>
+            <div class="pv-detail-item">
+                <span class="pv-label"><i class="fa fa-calendar-check-o fa-fw mr-1 text-muted"></i> Paid On</span>
+                <span class="pv-value">{{ row.custom_payment_date }}</span>
+            </div>
             {% } %}
 
             {% if (row.custom_due_date) { %}
-            <span class="pv-label"><i class="fa fa-clock-o fa-fw mr-1"></i> Due</span>
-            <span class="pv-value">{{ row.custom_due_date }}</span>
+            <div class="pv-detail-item">
+                <span class="pv-label"><i class="fa fa-clock-o fa-fw mr-1 text-muted"></i> Due</span>
+                <span class="pv-value">{{ row.custom_due_date }}</span>
+            </div>
             {% } %}
 
-            <span class="pv-label"><i class="fa fa-money fa-fw mr-1"></i> Total</span>
-            <span class="pv-value pv-value-amount">{{ format_currency(row.custom_amount,
-                frappe.boot.sysdefaults.currency) }}</span>
+            <div class="pv-detail-item">
+                <span class="pv-label"><i class="fa fa-money fa-fw mr-1 text-primary"></i> Total</span>
+                <span class="pv-value pv-value-amount">{{ format_currency(row.custom_amount,
+                    frappe.boot.sysdefaults.currency) }}</span>
+            </div>
 
-            <span class="pv-label"><i class="fa fa-check-circle fa-fw mr-1 text-success"></i> Paid</span>
-            <span class="pv-value pv-value-paid">{{ format_currency(row.custom_paid_amount,
-                frappe.boot.sysdefaults.currency) }}</span>
+            <div class="pv-detail-item">
+                <span class="pv-label"><i class="fa fa-check-circle fa-fw mr-1 text-success"></i> Paid</span>
+                <span class="pv-value pv-value-paid">{{ format_currency(row.custom_paid_amount,
+                    frappe.boot.sysdefaults.currency) }}</span>
+            </div>
         </div>
     </div>
 
@@ -79,14 +89,14 @@
     <div class="pv-col-action">
         <label class="pv-action-label">REF CODE / REFERENCE NUMBER</label>
         <input type="text" class="form-control reference-number-input mb-3"
-            value="{{ row.custom_reference_number || '' }}" placeholder="Reference Number..." />
+            value="{{ row.custom_reference_number || "" }}" placeholder="Reference Number..." />
 
         <label class="pv-action-label">AMOUNT RECEIVED</label>
         <input type="number" class="form-control amount-received-input mb-3"
             value="{{ row.custom_paid_amount || row.custom_amount }}" />
 
         <label class="pv-action-label">MODE OF PAYMENT</label>
-        <div class="pv-mode-of-payment-control mb-3" data-value="{{ row.custom_mode_of_payment || 'Wire Transfer' }}"></div>
+        <div class="pv-mode-of-payment-control mb-3" data-value="{{ row.custom_mode_of_payment || "" }}"></div>
 
         <label class="pv-action-label">ACCOUNT PAID TO</label>
         <div class="pv-account-paid-to-control mb-3" data-value="{{ row.custom_account_paid_to || "" }}"></div>

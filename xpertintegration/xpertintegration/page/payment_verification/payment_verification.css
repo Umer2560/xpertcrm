@@ -20,9 +20,9 @@
         margin-bottom: 16px;
         padding: 0 24px;
     }
-    .pv-col-details { width: 30%; }
-    .pv-col-attachment { width: 45%; }
-    .pv-col-action { width: 25%; }
+    .pv-col-details { width: 26%; }
+    .pv-col-attachment { width: 46%; }
+    .pv-col-action { width: 28%; }
 }
 
 /* Card Styling */
@@ -49,9 +49,9 @@
         flex-direction: row;
         align-items: stretch;
     }
-    .pv-col-details { width: 30%; padding-right: 24px; border-right: 1px solid #edf2f7; }
-    .pv-col-attachment { width: 45%; padding: 0 24px; display: flex; justify-content: center; align-items: center;}
-    .pv-col-action { width: 25%; padding-left: 24px; border-left: 1px solid #edf2f7; display: flex; flex-direction: column; justify-content: center;}
+    .pv-col-details { width: 26%; padding-right: 20px; border-right: 1px solid #edf2f7; }
+    .pv-col-attachment { width: 46%; padding: 0 24px; display: flex; justify-content: center; align-items: center;}
+    .pv-col-action { width: 28%; padding-left: 20px; border-left: 1px solid #edf2f7; display: flex; flex-direction: column; justify-content: center;}
 }
 
 /* Details Column */
@@ -59,7 +59,7 @@
     font-size: 16px;
     font-weight: 700;
     text-decoration: none;
-    color: #2d3748 !important;
+    color: #1a202c !important;
     display: inline-block;
     margin-bottom: 4px;
     transition: color 0.2s;
@@ -71,39 +71,54 @@
     font-size: 13px;
     color: #718096;
     display: block;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }
 
 .pv-details-grid {
     display: grid;
-    grid-template-columns: auto 1fr;
-    row-gap: 10px;
-    column-gap: 12px;
-    align-items: center;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    width: 100%;
+}
+.pv-detail-item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+.pv-detail-item:hover {
+    background: #ffffff;
+    border-color: #cbd5e0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
 }
 .pv-label {
-    font-size: 11px;
+    font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: #a0aec0;
-    margin: 0;
+    color: #718096;
+    margin-bottom: 4px;
+    font-weight: 700;
     white-space: nowrap;
-    font-weight: 600;
 }
 .pv-value {
     font-size: 13px;
-    font-weight: 500;
-    color: #4a5568;
+    font-weight: 600;
+    color: #2d3748;
+    word-break: break-word;
 }
 .pv-value-amount {
     font-weight: 700;
-    color: #3182ce;
-    font-size: 15px;
+    color: #2b6cb0;
+    font-size: 14px;
 }
 .pv-value-paid {
     font-weight: 700;
-    color: #38a169;
-    font-size: 15px;
+    color: #2f855a;
+    font-size: 14px;
 }
 
 /* Attachment Column */

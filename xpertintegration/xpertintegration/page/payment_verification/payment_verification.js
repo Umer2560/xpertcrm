@@ -1,4 +1,4 @@
-frappe.pages['payment-verification'].on_page_load = function(wrapper) {
+frappe.pages['payment-verification'].on_page_load = function (wrapper) {
 	var page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Payment Verification',
@@ -106,7 +106,7 @@ class PaymentVerificationPage {
 
 		// Select for Payment Type
 		let select_pt = this.wrapper.find('#pv-filter-payment-type');
-		select_pt.off('change').on('change', function() {
+		select_pt.off('change').on('change', function () {
 			me.filters.payment_type = $(this).val();
 			if (me.filters.payment_type === 'Deal Invoice Payment') {
 				me.filters.payment_entry = null;
@@ -225,7 +225,7 @@ class PaymentVerificationPage {
 		this.filter_controls.payment_entry = pe_control;
 
 		// Reset Button
-		this.wrapper.find('.btn-reset-filters').off('click').on('click', function() {
+		this.wrapper.find('.btn-reset-filters').off('click').on('click', function () {
 			me.filters = {
 				payment_type: 'All',
 				customer: null,
@@ -267,10 +267,10 @@ class PaymentVerificationPage {
 		let end = start + this.page_size;
 		let page_data = this.all_data.slice(start, end);
 		let total_pages = Math.ceil(this.all_data.length / this.page_size);
-		
+
 		this.controls = {};
 
-		let html = frappe.render_template('payment_verification', { 
+		let html = frappe.render_template('payment_verification', {
 			data: page_data,
 			current_page: this.current_page,
 			total_pages: total_pages,
@@ -283,8 +283,8 @@ class PaymentVerificationPage {
 
 	bind_events() {
 		let me = this;
-		
-		this.wrapper.find('.proof-image').off('click').on('click', function() {
+
+		this.wrapper.find('.proof-image').off('click').on('click', function () {
 			let url = $(this).data('url');
 			let d = new frappe.ui.Dialog({
 				title: 'Payment Proof',
@@ -302,11 +302,11 @@ class PaymentVerificationPage {
 			d.show();
 		});
 
-		this.wrapper.find('.pv-card').each(function() {
+		this.wrapper.find('.pv-card').each(function () {
 			let card = $(this);
 			let name = card.attr('data-name');
 			me.controls[name] = {};
-			
+
 			// Mode of Payment Control
 			let mop_wrapper = card.find('.pv-mode-of-payment-control');
 			let mop_value = mop_wrapper.data('value') || 'Wire Transfer';
@@ -337,7 +337,7 @@ class PaymentVerificationPage {
 					fieldname: 'account_paid_to',
 					label: 'Account Paid To',
 					hidden: 0,
-					get_query: function() {
+					get_query: function () {
 						return {
 							filters: {
 								is_group: 0,
@@ -356,7 +356,7 @@ class PaymentVerificationPage {
 			me.controls[name].apt = apt_control;
 		});
 
-		this.wrapper.find('.action-select').off('change').on('change', function() {
+		this.wrapper.find('.action-select').off('change').on('change', function () {
 			let val = $(this).val();
 			let remarks_input = $(this).siblings('.remarks-input');
 			if (['Cancelled', 'Unpaid'].includes(val)) {
@@ -366,7 +366,7 @@ class PaymentVerificationPage {
 			}
 		});
 
-		this.wrapper.find('.btn-save').off('click').on('click', function() {
+		this.wrapper.find('.btn-save').off('click').on('click', function () {
 			let btn = $(this);
 			let name = btn.attr('data-name');
 			let record_type = btn.attr('data-record-type') || me.filters.payment_type;
@@ -375,7 +375,7 @@ class PaymentVerificationPage {
 			let remarks = tr.find('.remarks-input').val();
 			let reference_number = tr.find('.reference-number-input').val();
 			let amount_received = tr.find('.amount-received-input').val();
-			
+
 			let mode_of_payment = me.controls[name] && me.controls[name].mop ? me.controls[name].mop.get_value() : null;
 			let account_paid_to = me.controls[name] && me.controls[name].apt ? me.controls[name].apt.get_value() : null;
 
@@ -389,7 +389,25 @@ class PaymentVerificationPage {
 				return;
 			}
 
-			me.call_update_status(record_type, name, status, remarks, amount_received, mode_of_payment, account_paid_to, reference_number);
+			let proceed = () => {
+				me.call_update_status(record_type, name, status, remarks, amount_received, mode_of_payment, account_paid_to, reference_number);
+			};
+
+			let record = me.all_data.find(d => d.name === name);
+			let total_amount = record ? flt(record.custom_amount) : 0;
+			let received = flt(amount_received);
+
+			if (total_amount > 0 && Math.abs(total_amount - received) > 0.01) {
+				frappe.confirm(
+					__('<b>Amount Mismatch</b><br>The Total Amount <b>{0}</b> and Received Amount <b>{1}</b> are different. Please verify the amounts before saving. If this difference is intentional, you may continue.', [
+						format_currency(total_amount, frappe.boot.sysdefaults.currency),
+						format_currency(received, frappe.boot.sysdefaults.currency)
+					]),
+					() => proceed()
+				);
+			} else {
+				proceed();
+			}
 		});
 
 		// Pagination Events
@@ -424,7 +442,7 @@ class PaymentVerificationPage {
 			},
 			callback: (r) => {
 				if (!r.exc) {
-					frappe.show_alert({message: 'Saved Successfully', indicator: 'green'});
+					frappe.show_alert({ message: 'Saved Successfully', indicator: 'green' });
 					this.load_data();
 				}
 			}
