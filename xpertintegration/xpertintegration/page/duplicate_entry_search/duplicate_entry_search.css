@@ -1,0 +1,492 @@
+/* Duplicate Entry Search Page Styling */
+
+.dup-search-wrapper {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 20px;
+    background-color: #f4f6f8;
+    min-height: calc(100vh - 120px);
+}
+
+/* Filter Card Header */
+.dup-filter-card {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.dup-filter-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dup-filter-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 6px;
+    display: block;
+}
+
+.dup-filter-select {
+    height: 42px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #1e293b;
+    background-color: #ffffff;
+    transition: all 0.2s ease;
+}
+
+.dup-filter-select:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    outline: none;
+}
+
+/* Summary Banner */
+.dup-summary-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+    color: #ffffff;
+    padding: 16px 24px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 10px 15px -3px rgba(49, 46, 129, 0.2);
+}
+
+.dup-summary-text {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.dup-summary-badge {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+/* Cluster Group Card (Samsung Gallery Album Look) */
+.dup-cluster-card {
+    background: #ffffff;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    margin-bottom: 24px;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dup-cluster-card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.dup-cluster-header {
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dup-cluster-key {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dup-type-tag {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.dup-type-tag.mobile {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.dup-type-tag.email {
+    background: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+/* Records Grid */
+.dup-records-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 20px;
+}
+
+.dup-record-item {
+    background: #ffffff;
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.dup-record-item.is-master {
+    border-color: #2563eb;
+    background: #f8fafc;
+    box-shadow: 0 0 0 1px #2563eb;
+}
+
+.dup-master-badge {
+    position: absolute;
+    top: -10px;
+    right: 14px;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.dup-record-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 8px;
+    word-break: break-word;
+}
+
+.dup-record-detail {
+    font-size: 0.82rem;
+    color: #64748b;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dup-record-detail i {
+    width: 14px;
+    color: #94a3b8;
+}
+
+/* Mode Switcher & Quick Toolbar */
+.dup-mode-switcher {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #e2e8f0;
+    padding: 4px;
+    border-radius: 8px;
+}
+
+.dup-mode-btn {
+    border: none;
+    background: transparent;
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border-radius: 6px;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.dup-mode-btn.active.mode-merge {
+    background: #2563eb;
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+
+.dup-mode-btn.active.mode-delete {
+    background: #dc2626;
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+}
+
+.dup-quick-toolbar {
+    padding: 10px 20px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+}
+
+.dup-quick-toolbar a {
+    font-weight: 600;
+    text-decoration: none !important;
+}
+
+.dup-quick-toolbar a:hover {
+    text-decoration: underline !important;
+}
+
+/* Checkboxes and Radio Inputs */
+.dup-radio-label, .dup-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 0.83rem;
+    cursor: pointer;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed #cbd5e1;
+    user-select: none;
+}
+
+.dup-radio-label {
+    color: #2563eb;
+}
+
+.dup-checkbox-label.merge-checkbox {
+    color: #1e293b;
+}
+
+.dup-checkbox-label.delete-checkbox {
+    color: #dc2626;
+}
+
+.dup-radio-label input[type="radio"],
+.dup-checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.dup-radio-label input[type="radio"] {
+    accent-color: #2563eb;
+}
+
+.dup-checkbox-label.merge-checkbox input[type="checkbox"] {
+    accent-color: #2563eb;
+}
+
+.dup-checkbox-label.delete-checkbox input[type="checkbox"] {
+    accent-color: #dc2626;
+}
+
+.dup-record-item.marked-for-delete {
+    border-color: #fca5a5;
+    background-color: #fef2f2;
+    box-shadow: 0 0 0 1px #ef4444;
+}
+
+/* Action Footer */
+.dup-cluster-footer {
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.btn-merge-selected {
+    background: #2563eb;
+    color: #ffffff;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 9px 20px;
+    border: none;
+    transition: all 0.2s ease;
+}
+
+.btn-merge-selected:hover {
+    background: #1d4ed8;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.btn-delete-selected {
+    background: #dc2626;
+    color: #ffffff;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 9px 20px;
+    border: none;
+    transition: all 0.2s ease;
+}
+
+.btn-delete-selected:hover {
+    background: #b91c1c;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #64748b;
+}
+
+.empty-state i {
+    font-size: 3rem;
+    color: #cbd5e1;
+    margin-bottom: 16px;
+}
+
+/* ── Dark Theme Support ── */
+[data-theme="dark"] .dup-search-wrapper {
+    background-color: #0f172a;
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .dup-filter-card {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .dup-filter-title {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .dup-filter-label {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .dup-filter-select {
+    border-color: #334155;
+    color: #f8fafc;
+    background-color: #0f172a;
+}
+
+[data-theme="dark"] .dup-filter-select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+[data-theme="dark"] .dup-cluster-card {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .dup-cluster-header {
+    background: #0f172a;
+    border-bottom-color: #334155;
+}
+
+[data-theme="dark"] .dup-cluster-key {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .dup-type-tag.mobile {
+    background: rgba(37, 99, 235, 0.2);
+    color: #60a5fa;
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+[data-theme="dark"] .dup-type-tag.email {
+    background: rgba(22, 163, 74, 0.2);
+    color: #4ade80;
+    border-color: rgba(74, 222, 128, 0.4);
+}
+
+[data-theme="dark"] .dup-record-item {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .dup-record-item.is-master {
+    border-color: #3b82f6;
+    background: #1e293b;
+    box-shadow: 0 0 0 1px #3b82f6;
+}
+
+[data-theme="dark"] .dup-record-title {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .dup-record-title a,
+[data-theme="dark"] .dup-record-title a.text-dark {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .dup-record-title a:hover {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .dup-record-detail {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .dup-record-detail i {
+    color: #64748b;
+}
+
+[data-theme="dark"] .dup-radio-label {
+    color: #60a5fa;
+    border-top-color: #334155;
+}
+
+[data-theme="dark"] .dup-cluster-footer {
+    background: #0f172a;
+    border-top-color: #334155;
+}
+
+[data-theme="dark"] .empty-state,
+[data-theme="dark"] .empty-state.bg-white {
+    background-color: #1e293b !important;
+    border-color: #334155 !important;
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .empty-state h4,
+[data-theme="dark"] .empty-state h4.text-dark {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .dup-mode-switcher {
+    background: #0f172a;
+}
+
+[data-theme="dark"] .dup-mode-btn {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .dup-quick-toolbar {
+    background: #0f172a;
+    border-bottom-color: #334155;
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .dup-checkbox-label.merge-checkbox {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .dup-checkbox-label.delete-checkbox {
+    color: #f87171;
+}
+
+[data-theme="dark"] .dup-record-item.marked-for-delete {
+    border-color: #ef4444;
+    background-color: rgba(239, 68, 68, 0.15);
+    box-shadow: 0 0 0 1px #ef4444;
+}
+

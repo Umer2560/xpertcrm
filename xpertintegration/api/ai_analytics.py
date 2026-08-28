@@ -741,6 +741,12 @@ class PaymentProofAnalyzer:
                 "crm_deal_payment_proof_processed",
                 {"deal_name": deal_name, "extracted": data},
             )
+            frappe.publish_realtime(
+                "doc_update",
+                {"doctype": "CRM Deal", "name": deal_name},
+                doctype="CRM Deal",
+                docname=deal_name,
+            )
         except Exception:
             pass
 

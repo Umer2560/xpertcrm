@@ -156,6 +156,94 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
         @keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
         .skeleton-kpi-value { height:36px; width:70%; margin-bottom:10px; }
         .skeleton-kpi-line  { height:12px; width:90%; margin-bottom:6px; }
+
+        /* ── Dark Theme Support ── */
+        [data-theme="dark"] .saas-dashboard { background-color:#0f172a; color:#f8fafc; }
+
+        [data-theme="dark"] .saas-filters {
+            background:#1e293b; border:1px solid #334155;
+            box-shadow:0 4px 6px -1px rgba(0,0,0,.3);
+        }
+        [data-theme="dark"] .saas-filters label { color:#94a3b8; }
+        [data-theme="dark"] .saas-filters select {
+            border-color:#334155; background:#0f172a; color:#f8fafc;
+        }
+        [data-theme="dark"] .saas-filters select:hover,
+        [data-theme="dark"] .saas-filters select:focus {
+            border-color:#818cf8; background:#1e293b;
+        }
+        [data-theme="dark"] .saas-btn-ghost { background:#334155; color:#f8fafc; }
+        [data-theme="dark"] .saas-btn-ghost:hover { background:#475569; }
+        [data-theme="dark"] #btn-email { background:#312e81 !important; color:#c7d2fe !important; }
+
+        [data-theme="dark"] .saas-kpi-card {
+            background:#1e293b; border:1px solid #334155;
+            box-shadow:0 4px 6px -1px rgba(0,0,0,.3);
+        }
+        [data-theme="dark"] .saas-kpi-card:hover { box-shadow:0 16px 24px -4px rgba(0,0,0,.5); }
+        [data-theme="dark"] .saas-kpi-title { color:#94a3b8; }
+        [data-theme="dark"] .saas-kpi-value { color:#f8fafc; }
+        [data-theme="dark"] .saas-kpi-details { color:#94a3b8; border-top-color:#334155; }
+        [data-theme="dark"] .saas-kpi-details strong { color:#f1f5f9; }
+
+        [data-theme="dark"] .icon-blue   { background:rgba(59,130,246,0.2); color:#60a5fa; }
+        [data-theme="dark"] .icon-green  { background:rgba(16,185,129,0.2); color:#34d399; }
+        [data-theme="dark"] .icon-purple { background:rgba(139,92,246,0.2); color:#a78bfa; }
+        [data-theme="dark"] .icon-amber  { background:rgba(245,158,11,0.2); color:#fbbf24; }
+        [data-theme="dark"] .icon-red    { background:rgba(239,68,68,0.2); color:#f87171; }
+
+        [data-theme="dark"] .trend-up   { background:rgba(22,163,74,0.25); color:#4ade80; }
+        [data-theme="dark"] .trend-down { background:rgba(220,38,38,0.25); color:#f87171; }
+        [data-theme="dark"] .trend-flat { background:#334155; color:#94a3b8; }
+
+        [data-theme="dark"] .saas-section {
+            background:#1e293b; border:1px solid #334155;
+            box-shadow:0 4px 6px -1px rgba(0,0,0,.3);
+        }
+        [data-theme="dark"] .saas-section-title { color:#f8fafc; }
+        [data-theme="dark"] .saas-section-subtitle { color:#94a3b8; }
+        [data-theme="dark"] #f-trend-group { background:#0f172a !important; color:#f8fafc !important; border-color:#334155 !important; }
+
+        [data-theme="dark"] .saas-pipeline-card {
+            background:#0f172a; border-color:#334155;
+        }
+        [data-theme="dark"] .saas-pipeline-card:hover {
+            border-color:#818cf8; background:#1e293b; box-shadow:0 8px 16px -2px rgba(0,0,0,.4);
+        }
+        [data-theme="dark"] .saas-pipeline-card-title { color:#f8fafc; }
+        [data-theme="dark"] .saas-pipeline-card-sub { color:#94a3b8; }
+
+        [data-theme="dark"] .metric-box {
+            background:#1e293b; border-color:#334155;
+        }
+        [data-theme="dark"] .metric-box.highlighted {
+            background:rgba(99,102,241,0.15); border-color:rgba(99,102,241,0.4);
+        }
+        [data-theme="dark"] .metric-label { color:#94a3b8; }
+        [data-theme="dark"] .metric-box.highlighted .metric-label { color:#a5b4fc; }
+        [data-theme="dark"] .metric-value { color:#f8fafc; }
+        [data-theme="dark"] .metric-box.highlighted .metric-value { color:#c7d2fe; }
+
+        [data-theme="dark"] .table-modern th {
+            background:#0f172a; color:#94a3b8; border-bottom-color:#334155;
+        }
+        [data-theme="dark"] .table-modern th:hover { color:#818cf8; }
+        [data-theme="dark"] .table-modern td { border-bottom-color:#334155; color:#cbd5e1; }
+        [data-theme="dark"] .table-modern td strong { color:#f8fafc; }
+        [data-theme="dark"] .table-modern tbody tr:hover { background:#0f172a; }
+
+        [data-theme="dark"] .alert-card {
+            background:rgba(245,158,11,0.15); border-left-color:#f59e0b;
+        }
+        [data-theme="dark"] .alert-card.critical { background:rgba(239,68,68,0.15); border-left-color:#ef4444; }
+        [data-theme="dark"] .alert-card.info     { background:rgba(59,130,246,0.15); border-left-color:#3b82f6; }
+        [data-theme="dark"] .alert-title { color:#f8fafc; }
+        [data-theme="dark"] .alert-desc  { color:#94a3b8; }
+        [data-theme="dark"] #alert-count { background:rgba(220,38,38,0.3) !important; color:#f87171 !important; }
+
+        [data-theme="dark"] .skeleton {
+            background:linear-gradient(90deg,#1e293b 25%,#334155 50%,#1e293b 75%);
+        }
     `);
 
     // ── HTML Scaffold ───────────────────────────────────────────────────────

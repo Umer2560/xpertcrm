@@ -159,14 +159,22 @@ doc_events = {
             "xpertintegration.api.integration.validate_crm_deal",
             "xpertintegration.api.integration.broadcast_deal_company",
         ],
-        "after_insert": "xpertintegration.api.integration.after_crm_deal_insert",
+        "after_insert": [
+            "xpertintegration.api.integration.after_crm_deal_insert",
+            "xpertintegration.api.ai_analytics.on_crm_deal_save",
+        ],
         "on_update": [
             "xpertintegration.api.integration.broadcast_crm_deal",
             "xpertintegration.api.integration.handle_deal_payment_task",
             "xpertintegration.api.integration.on_crm_deal_update_billing",
+            "xpertintegration.api.ai_analytics.on_crm_deal_save",
         ],
         "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
         "on_cancel": "xpertintegration.api.integration.broadcast_crm_document",
+    },
+    "File": {
+        "after_insert": "xpertintegration.api.integration.on_file_after_insert_crm_deal",
+        "on_update": "xpertintegration.api.integration.on_file_after_insert_crm_deal",
     },
     "Customer": {
         "validate": "xpertintegration.api.integration.validate_customer",

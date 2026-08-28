@@ -1516,12 +1516,12 @@
   "doctype": "Territory",
   "is_group": 0,
   "modified": "2026-08-11 12:07:08.212037",
-  "name": "Khairpur Mirâ€™s",
+  "name": "Khairpur Mir\u00e2\u20ac\u2122s",
   "old_parent": "All Territories",
   "parent_territory": "All Territories",
   "targets": [],
   "territory_manager": null,
-  "territory_name": "Khairpur Mirâ€™s"
+  "territory_name": "Khairpur Mir\u00e2\u20ac\u2122s"
  },
  {
   "docstatus": 0,
@@ -3350,7 +3350,7 @@
  {
   "docstatus": 0,
   "doctype": "Territory",
-  "is_group": 0,
+  "is_group": 1,
   "modified": "2026-08-11 12:07:07.362234",
   "name": "Islamabad",
   "old_parent": "All Territories",

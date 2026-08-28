@@ -1873,6 +1873,8 @@ def broadcast_deal_company(doc, method=None):
             source_docname=doc_name_label,
         )
 
+        comp_code = company_code
+        proj_code = project_name or project_val
         if response.get("status") == "success":
             data = response.get("data", {})
             message = data.get("message", {})
@@ -1883,13 +1885,15 @@ def broadcast_deal_company(doc, method=None):
 
             returned_company = callback_data.get("custom_company_code")
             if not returned_company:
-                frappe.throw("Against this project no company found")
+                if comp_code and proj_code:
+                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                else:
+                    frappe.throw("Company does not exist in the project.")
         else:
-            comp_code = company_code
-            proj_code = project_val
-            frappe.throw(
-                f"Failed to verify company <b>{comp_code}</b> in project <b>{proj_code}</b>"
-            )
+            if comp_code and proj_code:
+                frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+            else:
+                frappe.throw("Company does not exist in the project.")
     except Exception:
         log_integration_error(
             title="Deal-Company Debug: Exception", message=frappe.get_traceback()
@@ -1974,6 +1978,8 @@ def broadcast_customer_company(doc, method=None):
                 source_docname=doc_name,
             )
 
+            comp_code = doc.get("custom_project_company") or doc.get("company_code") or ""
+            proj_code = project_name or project_val or ""
             if response.get("status") == "success":
                 data = response.get("data", {})
                 message = data.get("message", {})
@@ -1984,11 +1990,15 @@ def broadcast_customer_company(doc, method=None):
 
                 returned_company = callback_data.get("custom_project_company")
                 if not returned_company:
-                    frappe.throw("Against this project no company found")
+                    if comp_code and proj_code:
+                        frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                    else:
+                        frappe.throw("Company does not exist in the project.")
             else:
-                frappe.throw(
-                    f"Failed to verify company in project: {response.get('error')}"
-                )
+                if comp_code and proj_code:
+                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                else:
+                    frappe.throw("Company does not exist in the project.")
     except Exception:
         log_integration_error(
             title="Customer-Company Debug: Exception", message=frappe.get_traceback()
@@ -3091,9 +3101,18 @@ def process_deal_billing_pipeline(deal_doc):
             settings = frappe.get_single("ERPNext CRM Settings")
             create_customer_from_deal(deal_doc, settings)
         except Exception as e:
-            frappe.throw(
-                f"Customer creation failed for Deal '{deal_doc.name}': {str(e)}"
-            )
+            err_msg = str(e)
+            if "ValidationError" in err_msg or "{" in err_msg or "Traceback" in err_msg or "Failed to verify" in err_msg:
+                comp_code = deal_doc.get("custom_company_code") or ""
+                proj_code = deal_doc.get("custom_project") or ""
+                if comp_code and proj_code:
+                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                elif comp_code:
+                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in the project.")
+                else:
+                    frappe.throw("Company does not exist in the project.")
+            else:
+                frappe.throw(err_msg)
 
         deal_doc.reload()
         cust_name = (
@@ -3585,3 +3604,43 @@ def rerun_incomplete_billing_deals(exclude_deals=None):
         "results": results,
         "errors": errors,
     }
+
+
+def on_file_after_insert_crm_deal(doc, method=None):
+    """
+    Hook called when a File document is inserted or updated.
+    If the file is attached to a CRM Deal, link it to custom_payment_proof if appropriate
+    and trigger AI payment proof extraction.
+    """
+    try:
+        if doc.attached_to_doctype == "CRM Deal" and doc.attached_to_name:
+            deal_name = doc.attached_to_name
+            file_url = doc.file_url
+            if not file_url:
+                return
+
+            filename = (doc.file_name or file_url).lower()
+            is_image_or_pdf = any(filename.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".pdf", ".gif"])
+
+            if not is_image_or_pdf:
+                return
+
+            if not frappe.db.exists("CRM Deal", deal_name):
+                return
+
+            deal = frappe.get_doc("CRM Deal", deal_name)
+
+            if doc.attached_to_field == "custom_payment_proof" or not deal.get("custom_payment_proof"):
+                frappe.db.set_value("CRM Deal", deal_name, "custom_payment_proof", file_url, update_modified=True)
+                deal.custom_payment_proof = file_url
+
+            paid_amount = flt(deal.get("custom_paid_amount"))
+            payment_date = deal.get("custom_payment_date")
+            ref_number = deal.get("custom_reference_number") or deal.get("custom_transaction_id")
+
+            if doc.attached_to_field == "custom_payment_proof" or (paid_amount == 0 and not payment_date and not ref_number):
+                from xpertintegration.api.ai_analytics import payment_proof_analyzer
+                payment_proof_analyzer.process_deal_doc(deal)
+    except Exception as e:
+        frappe.logger().exception(f"Error in on_file_after_insert_crm_deal: {e}")
+
