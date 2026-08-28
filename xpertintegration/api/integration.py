@@ -93,7 +93,8 @@ def create_integration_log(
             }
         )
         log_doc.flags.ignore_permissions = True
-        log_doc.insert(ignore_permissions=True)
+        log_doc.flags.ignore_links = True
+        log_doc.insert(ignore_permissions=True, ignore_links=True)
         frappe.db.commit()
         return log_doc.name
     except Exception as e:
