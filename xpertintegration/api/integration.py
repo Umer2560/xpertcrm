@@ -1490,7 +1490,16 @@ def validate_sales_invoice(doc, method=None):
             if cust.custom_project and not doc.get("project"):
                 doc.project = cust.custom_project
             if cust.crm_deal and not doc.get("custom_crm_deal"):
-                doc.custom_crm_deal = cust.crm_deal
+                existing_count = frappe.db.count(
+                    "Sales Invoice",
+                    filters={
+                        "subscription": doc.subscription,
+                        "docstatus": ["!=", 2],
+                        "name": ["!=", doc.name or ""],
+                    },
+                )
+                if existing_count == 0:
+                    doc.custom_crm_deal = cust.crm_deal
 
     set_sales_person_from_deal_owner(doc)
     validate_plan_project_matching(doc)
@@ -1500,8 +1509,6 @@ def set_sales_person_from_deal_owner(doc):
     crm_deal = doc.get("custom_crm_deal")
     if not crm_deal and doc.get("customer"):
         crm_deal = frappe.db.get_value("Customer", doc.customer, "crm_deal")
-        if crm_deal:
-            doc.custom_crm_deal = crm_deal
 
     if not crm_deal:
         return

@@ -96,7 +96,7 @@
   },
   {
    "fieldname": "reference_name",
-   "fieldtype": "Dynamic Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Reference Document",
    "options": "reference_doctype"
@@ -173,7 +173,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-21 18:39:01.866715",
+ "modified": "2026-08-31 11:52:34.575209",
  "modified_by": "Administrator",
  "module": "XpertIntegration",
  "name": "Integration Log",
