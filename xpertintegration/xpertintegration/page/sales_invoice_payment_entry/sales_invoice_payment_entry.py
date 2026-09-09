@@ -6,21 +6,31 @@ from xpertintegration.api.integration import create_integration_log, log_integra
 
 
 @frappe.whitelist()
-def get_unlinked_sales_invoices(customer=None, project=None, search_term=None):
+def get_unlinked_sales_invoices(customer=None, project=None, search_term=None, status=None):
     """
-    Fetches submitted Sales Invoices where:
-    - docstatus = 1 (submitted)
+    Fetches Sales Invoices where:
     - custom_crm_deal is empty / null
-    - payment status is not paid (status != 'Paid' and outstanding_amount > 0)
+    - payment status is not paid and not cancelled (status NOT IN ('Paid', 'Cancelled')) by default,
+      or matches the specific status filter if provided.
     Also checks if a draft Payment Entry already exists for the invoice.
     """
-    conditions = [
-        "si.docstatus = 1",
-        "si.status != 'Paid'",
-        "si.outstanding_amount > 0",
-        "(si.custom_crm_deal IS NULL OR si.custom_crm_deal = '')",
-    ]
+    conditions = []
     params = {}
+
+    if status and str(status).strip():
+        st = str(status).strip()
+        conditions.append("si.status = %(status)s")
+        params["status"] = st
+        if st == "Cancelled":
+            conditions.append("si.docstatus = 2")
+        elif st == "Draft":
+            conditions.append("si.docstatus = 0")
+        else:
+            conditions.append("si.docstatus = 1")
+    else:
+        conditions.append("si.docstatus = 1")
+        conditions.append("si.status NOT IN ('Paid', 'Cancelled')")
+        conditions.append("si.outstanding_amount > 0")
 
     if customer:
         conditions.append("si.customer = %(customer)s")

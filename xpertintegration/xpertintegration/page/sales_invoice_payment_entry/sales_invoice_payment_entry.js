@@ -23,7 +23,8 @@ class SalesInvoicePaymentEntryPage {
 		this.filters = {
 			customer: null,
 			project: null,
-			search_term: null
+			search_term: null,
+			status: null
 		};
 
 		this.init_layout();
@@ -75,7 +76,7 @@ class SalesInvoicePaymentEntryPage {
 				<!-- Filter Card -->
 				<div class="uip-filter-card mb-4 p-3 bg-white border rounded-lg shadow-sm" style="border-radius: 12px;">
 					<div class="form-row align-items-end">
-						<div class="col-md-4 col-sm-6 mb-2">
+						<div class="col-md-3 col-sm-6 mb-2">
 							<label class="uip-filter-label">
 								<i class="fa fa-building-o mr-1 text-muted"></i> Customer / Company
 							</label>
@@ -89,16 +90,30 @@ class SalesInvoicePaymentEntryPage {
 							<div id="uip-filter-project"></div>
 						</div>
 
+						<div class="col-md-2 col-sm-6 mb-2" id="uip-filter-status-col">
+							<label class="uip-filter-label">
+								<i class="fa fa-info-circle mr-1 text-muted"></i> Status
+							</label>
+							<select id="uip-filter-status" class="form-control" style="height: 28px; border-radius: 8px; margin-bottom: 0.5rem">
+								<option value="">All</option>
+								<option value="Unpaid">Unpaid</option>
+								<option value="Overdue">Overdue</option>
+								<option value="Partially Paid">Partially Paid</option>
+								<option value="Paid">Paid</option>
+								<option value="Cancelled">Cancelled</option>
+							</select>
+						</div>
+
 						<div class="col-md-3 col-sm-6 mb-2">
 							<label class="uip-filter-label">
 								<i class="fa fa-search mr-1 text-muted"></i> Search Invoice / Customer
 							</label>
-							<input type="text" id="uip-filter-search" class="form-control" placeholder="Search name or ID..." style="height: 38px; border-radius: 8px;" />
+							<input type="text" id="uip-filter-search" class="form-control" placeholder="Search name or ID..." style="height: 28px; border-radius: 8px; margin-bottom: 0.5rem" />
 						</div>
 
-						<div class="col-md-2 col-sm-12 text-right mb-2">
-							<button class="btn btn-sm btn-light border btn-reset-filters" style="height: 38px; border-radius: 8px; font-weight: 600; padding: 0 16px;">
-								<i class="fa fa-refresh mr-1"></i> Reset
+						<div class="col-md-1 col-sm-12 text-right mb-2">
+							<button class="btn btn-sm btn-light border btn-reset-filters" style="height: 28px; border-radius: 8px; font-weight: 600; width: 100%; padding: 0; margin-bottom: 0.5rem">
+								<i class="fa fa-refresh"></i> Reset
 							</button>
 						</div>
 					</div>
@@ -127,6 +142,11 @@ class SalesInvoicePaymentEntryPage {
 				me.active_tab = selected_tab;
 				me.wrapper.find('#uip-nav-tabs .nav-link').removeClass('active');
 				$(this).addClass('active');
+				if (me.active_tab === 'pending') {
+					me.wrapper.find('#uip-filter-status-col').show();
+				} else {
+					me.wrapper.find('#uip-filter-status-col').hide();
+				}
 				me.current_page = 1;
 				me.update_stats();
 				me.render_page();
@@ -179,6 +199,13 @@ class SalesInvoicePaymentEntryPage {
 		proj_control.make_input();
 		this.filter_controls.project = proj_control;
 
+		// Status Select Filter
+		let status_select = this.wrapper.find('#uip-filter-status');
+		status_select.off('change').on('change', function () {
+			me.filters.status = $(this).val();
+			me.load_data();
+		});
+
 		// Search Input Filter
 		let search_input = this.wrapper.find('#uip-filter-search');
 		let timer = null;
@@ -192,9 +219,10 @@ class SalesInvoicePaymentEntryPage {
 
 		// Reset Button
 		this.wrapper.find('.btn-reset-filters').off('click').on('click', function () {
-			me.filters = { customer: null, project: null, search_term: null };
+			me.filters = { customer: null, project: null, search_term: null, status: null };
 			cust_control.set_value('');
 			proj_control.set_value('');
+			status_select.val('');
 			search_input.val('');
 			me.load_data();
 		});
@@ -208,7 +236,8 @@ class SalesInvoicePaymentEntryPage {
 			args: {
 				customer: me.filters.customer,
 				project: me.filters.project,
-				search_term: me.filters.search_term
+				search_term: me.filters.search_term,
+				status: me.filters.status
 			},
 			callback: (r) => {
 				me.pending_data = r.message || [];
