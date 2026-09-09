@@ -229,6 +229,9 @@ def update_verification_record(
         if reference_number:
             pe.reference_no = reference_number
 
+        if pe.reference_date:
+            pe.posting_date = pe.reference_date
+
         pe.flags.ignore_permissions = True
 
         if status == "Paid":

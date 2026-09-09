@@ -53,6 +53,30 @@ def create_integration_log(
     Creates an Integration Log entry to track all sync steps, payloads, responses, and errors.
     """
     try:
+        # Normalize Select field options to match DocType constraints
+        valid_statuses = {"Success", "Failed", "Pending", "Retrying"}
+        if status not in valid_statuses:
+            status = "Failed" if "fail" in str(status).lower() or "error" in str(status).lower() else "Success"
+
+        valid_directions = {"Outbound", "Inbound", "Internal Sync"}
+        if direction not in valid_directions:
+            direction = "Inbound" if "in" in str(direction).lower() else "Outbound"
+
+        valid_triggers = {"DocType Hook", "API Endpoint", "Scheduled Task", "Manual Trigger"}
+        if trigger_source not in valid_triggers:
+            ts_str = str(trigger_source).lower()
+            if "api" in ts_str or "webhook" in ts_str or "rest" in ts_str:
+                trigger_source = "API Endpoint"
+            elif "page" in ts_str or "manual" in ts_str or "ui" in ts_str:
+                trigger_source = "Manual Trigger"
+            elif "schedule" in ts_str or "cron" in ts_str:
+                trigger_source = "Scheduled Task"
+            else:
+                trigger_source = "DocType Hook"
+
+        valid_methods = {"POST", "GET", "PUT", "DELETE"}
+        if http_method not in valid_methods:
+            http_method = "POST"
 
         def _serialize(data):
             if data is None:
@@ -92,13 +116,16 @@ def create_integration_log(
                 "remarks": remarks,
             }
         )
+        log_doc._validate_code_fields = lambda: None
         log_doc.flags.ignore_permissions = True
         log_doc.flags.ignore_links = True
         log_doc.insert(ignore_permissions=True, ignore_links=True)
         frappe.db.commit()
         return log_doc.name
     except Exception as e:
-        get_integration_logger().error(f"Failed to create Integration Log: {str(e)}")
+        get_integration_logger().error(
+            f"Failed to create Integration Log: {str(e)}", exc_info=True
+        )
         return None
 
 
@@ -415,6 +442,7 @@ def send_api_request(
             except Exception:
                 try:
                     import ast
+
                     resp_json = ast.literal_eval(response.text)
                 except Exception:
                     try:
@@ -428,7 +456,10 @@ def send_api_request(
             if (
                 resp_json.get("status") == "success"
                 or "callback_data" in resp_json
-                or (isinstance(resp_json.get("message"), dict) and resp_json.get("message", {}).get("status") == "success")
+                or (
+                    isinstance(resp_json.get("message"), dict)
+                    and resp_json.get("message", {}).get("status") == "success"
+                )
             ):
                 is_body_success = True
 
@@ -474,6 +505,7 @@ def send_api_request(
             except Exception:
                 try:
                     import ast
+
                     parsed_err = ast.literal_eval(e.response.text)
                 except Exception:
                     try:
@@ -481,7 +513,9 @@ def send_api_request(
                     except Exception:
                         parsed_err = None
 
-        if isinstance(parsed_err, dict) and (parsed_err.get("status") == "success" or "callback_data" in parsed_err):
+        if isinstance(parsed_err, dict) and (
+            parsed_err.get("status") == "success" or "callback_data" in parsed_err
+        ):
             status = "Success"
             resp_payload = parsed_err
             ret_val = {"status": "success", "data": parsed_err, "status_code": res_code}
@@ -572,6 +606,20 @@ def get_doc_project(doc):
     elif doc.doctype == "Subscription":
         if doc.get("party_type") == "Customer" and doc.get("party"):
             project = frappe.db.get_value("Customer", doc.party, "custom_project")
+        if not project and doc.get("custom_project_company"):
+            project = frappe.db.get_value("Customer", {"custom_project_company": doc.get("custom_project_company")}, "custom_project")
+        if not project and doc.get("plans"):
+            plans_data = doc.get("plans")
+            if isinstance(plans_data, list):
+                for p_row in plans_data:
+                    p_name = getattr(p_row, "plan", None) or (p_row.get("plan") if isinstance(p_row, dict) else None)
+                    if p_name:
+                        project = (
+                            frappe.db.get_value("Subscription Plan", p_name, "custom_project")
+                            or frappe.db.get_value("Subscription Plan", {"plan_name": p_name}, "custom_project")
+                        )
+                        if project:
+                            break
     elif doc.doctype == "Sales Invoice":
         if doc.get("customer"):
             project = frappe.db.get_value("Customer", doc.customer, "custom_project")
@@ -1196,7 +1244,9 @@ def validate_crm_fields(doc, method=None):
 
 
 @frappe.whitelist()
-def fetch_company_details_from_project(company_code=None, custom_company_code=None, project=None, lead_id=None):
+def fetch_company_details_from_project(
+    company_code=None, custom_company_code=None, project=None, lead_id=None
+):
     """
     Sends an outbound API call to the specified Project endpoint with
     payload: {"doctype": "Fetch Company", "company_code": comp_code, "custom_company_code": comp_code}.
@@ -1241,8 +1291,22 @@ def fetch_company_details_from_project(company_code=None, custom_company_code=No
 
         if is_success:
             company_info = _extract_company_info_dict(resp_data)
-            if not company_info or not any(key in company_info for key in ["organization", "company_name", "first_name", "email", "mobile_no", "name"]):
-                frappe.throw(_(f"No company details found for Company Code '{comp_code}'. Please verify the Company Code and Project."))
+            if not company_info or not any(
+                key in company_info
+                for key in [
+                    "organization",
+                    "company_name",
+                    "first_name",
+                    "email",
+                    "mobile_no",
+                    "name",
+                ]
+            ):
+                frappe.throw(
+                    _(
+                        f"No company details found for Company Code '{comp_code}'. Please verify the Company Code and Project."
+                    )
+                )
 
             if lead_id and frappe.db.exists("CRM Lead", lead_id):
                 lead_doc = frappe.get_doc("CRM Lead", lead_id)
@@ -1254,7 +1318,13 @@ def fetch_company_details_from_project(company_code=None, custom_company_code=No
 
             return {
                 "status": "success",
-                "message": (resp_data.get("message") if isinstance(resp_data, dict) and isinstance(resp_data.get("message"), str) else None) or _("Company details fetched successfully."),
+                "message": (
+                    resp_data.get("message")
+                    if isinstance(resp_data, dict)
+                    and isinstance(resp_data.get("message"), str)
+                    else None
+                )
+                or _("Company details fetched successfully."),
                 "data": company_info,
             }
         else:
@@ -1283,6 +1353,7 @@ def _extract_company_info_dict(data):
     if isinstance(data, str):
         try:
             import ast
+
             data = ast.literal_eval(data)
         except Exception:
             try:
@@ -1294,7 +1365,12 @@ def _extract_company_info_dict(data):
         return {}
 
     for _ in range(5):
-        if "organization" in data or "company_name" in data or "first_name" in data or "custom_plan" in data:
+        if (
+            "organization" in data
+            or "company_name" in data
+            or "first_name" in data
+            or "custom_plan" in data
+        ):
             break
         if isinstance(data.get("callback_data"), dict):
             data = data.get("callback_data")
@@ -1894,12 +1970,16 @@ def broadcast_deal_company(doc, method=None):
             returned_company = callback_data.get("custom_company_code")
             if not returned_company:
                 if comp_code and proj_code:
-                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                    frappe.throw(
+                        f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>."
+                    )
                 else:
                     frappe.throw("Company does not exist in the project.")
         else:
             if comp_code and proj_code:
-                frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                frappe.throw(
+                    f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>."
+                )
             else:
                 frappe.throw("Company does not exist in the project.")
     except Exception:
@@ -1936,6 +2016,15 @@ def before_customer_insert(doc, method=None):
         code = deal.get("custom_company_code")
         if code:
             doc.custom_project_company = code
+
+
+@frappe.whitelist()
+def before_payment_entry_insert(doc, method=None):
+    """
+    Ensures that for any Payment Entry being created, posting_date is set to the payment date (reference_date).
+    """
+    if doc.get("reference_date"):
+        doc.posting_date = doc.reference_date
 
 
 @frappe.whitelist()
@@ -1986,7 +2075,9 @@ def broadcast_customer_company(doc, method=None):
                 source_docname=doc_name,
             )
 
-            comp_code = doc.get("custom_project_company") or doc.get("company_code") or ""
+            comp_code = (
+                doc.get("custom_project_company") or doc.get("company_code") or ""
+            )
             proj_code = project_name or project_val or ""
             if response.get("status") == "success":
                 data = response.get("data", {})
@@ -1999,12 +2090,16 @@ def broadcast_customer_company(doc, method=None):
                 returned_company = callback_data.get("custom_project_company")
                 if not returned_company:
                     if comp_code and proj_code:
-                        frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                        frappe.throw(
+                            f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>."
+                        )
                     else:
                         frappe.throw("Company does not exist in the project.")
             else:
                 if comp_code and proj_code:
-                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                    frappe.throw(
+                        f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>."
+                    )
                 else:
                     frappe.throw("Company does not exist in the project.")
     except Exception:
@@ -2149,6 +2244,9 @@ def create_subscription(doc, method=None):
                         pe.reference_no = deal_doc.custom_reference_number
                     if deal_doc.get("custom_payment_date"):
                         pe.reference_date = deal_doc.custom_payment_date
+                        pe.posting_date = deal_doc.custom_payment_date
+                    elif pe.reference_date:
+                        pe.posting_date = pe.reference_date
                     if deal_doc.get("custom_account_paid_to"):
                         pe.paid_to = deal_doc.custom_account_paid_to
 
@@ -2260,15 +2358,52 @@ def send_subscription_status_data(doc, method=None):
 @frappe.whitelist()
 def xpert_integration(payload=None):
     if not payload:
+        if frappe.form_dict.get("payload"):
+            payload = frappe.form_dict.get("payload")
+        else:
+            payload = dict(frappe.form_dict)
+            payload.pop("cmd", None)
+
+    if not payload:
+        create_integration_log(
+            status="Failed",
+            direction="Inbound",
+            trigger_source="API Endpoint",
+            http_method="POST",
+            error_traceback="Payload is required.",
+            remarks="Inbound request failed: No payload provided",
+        )
         frappe.throw("Payload is required.")
 
     if isinstance(payload, str):
         payload = frappe.parse_json(payload)
 
-    doctype = payload.get("doctype")
+    doctype = payload.get("doctype") if isinstance(payload, dict) else None
     get_integration_logger().info(f"Incoming request for doctype: {doctype}")
 
-    return process_incoming_integration_payload(payload)
+    try:
+        return process_incoming_integration_payload(payload)
+    except Exception as e:
+        err_trace = frappe.get_traceback()
+        target_dt = payload.get("doctype") if isinstance(payload, dict) else None
+        comp_code = (
+            payload.get("custom_company_code") or payload.get("custom_project_company")
+            if isinstance(payload, dict)
+            else None
+        )
+        create_integration_log(
+            status="Failed",
+            direction="Inbound",
+            trigger_source="API Endpoint",
+            reference_doctype=target_dt,
+            reference_name=payload.get("name") if isinstance(payload, dict) else None,
+            company_code=comp_code,
+            http_method="POST",
+            request_payload=payload,
+            error_traceback=err_trace,
+            remarks=f"Inbound request failed: {str(e)}",
+        )
+        raise
 
 
 @frappe.whitelist()
@@ -2281,7 +2416,7 @@ def process_incoming_integration_payload(payload=None):
         create_integration_log(
             status="Failed",
             direction="Inbound",
-            trigger_source="Webhook / API",
+            trigger_source="API Endpoint",
             http_method="POST",
             error_traceback="Payload is required.",
             remarks="Inbound request failed: No payload provided",
@@ -2296,7 +2431,7 @@ def process_incoming_integration_payload(payload=None):
         create_integration_log(
             status="Failed",
             direction="Inbound",
-            trigger_source="Webhook / API",
+            trigger_source="API Endpoint",
             http_method="POST",
             request_payload=payload,
             error_traceback="Payload must contain 'doctype'.",
@@ -2334,18 +2469,45 @@ def process_incoming_integration_payload(payload=None):
             except Exception:
                 logger.warning(f"File save failed for field {field}", exc_info=True)
                 doc_fields.pop(field, None)
-        elif isinstance(value, list):
-            _clean_child_table_rows(value)
-
-    # Resolve link fields (Project / Subscription Plan)
+    # Resolve meta and normalize child tables
     meta = frappe.get_meta(target_doctype)
 
+    for tf in meta.get_table_fields():
+        fn = tf.fieldname
+        val = doc_fields.get(fn)
+        if val is not None:
+            if isinstance(val, str):
+                child_meta = frappe.get_meta(tf.options)
+                link_field = None
+                for cdf in child_meta.fields:
+                    if cdf.fieldtype == "Link":
+                        link_field = cdf.fieldname
+                        break
+                if link_field:
+                    doc_fields[fn] = [{link_field: val, "qty": 1}]
+                else:
+                    doc_fields.pop(fn, None)
+            elif isinstance(val, dict):
+                doc_fields[fn] = [val]
+            elif isinstance(val, list):
+                _clean_child_table_rows(val)
+
     for prj_field in ["project", "custom_project"]:
-        if meta.has_field(prj_field) and doc_fields.get(prj_field):
-            prj_val = doc_fields[prj_field]
-            real_name = frappe.db.get_value(
-                "Project", {"project_name": prj_val}, "name"
-            ) or frappe.db.get_value("Project", prj_val, "name")
+        if meta.has_field(prj_field):
+            prj_val = doc_fields.get(prj_field)
+            real_name = None
+            if prj_val:
+                real_name = frappe.db.get_value(
+                    "Project", {"project_name": prj_val}, "name"
+                ) or frappe.db.get_value("Project", prj_val, "name")
+            if not real_name and doc_fields.get("custom_project_company"):
+                real_name = frappe.db.get_value("Project", {"custom_company_code": doc_fields["custom_project_company"]}, "name") or frappe.db.get_value("Project", {"project_name": doc_fields["custom_project_company"]}, "name")
+            if not real_name and doc_fields.get("plans"):
+                plan_list = doc_fields["plans"]
+                if isinstance(plan_list, list) and len(plan_list) > 0:
+                    first_plan = plan_list[0].get("plan")
+                    if first_plan:
+                        real_name = frappe.db.get_value("Subscription Plan", first_plan, "custom_project") or frappe.db.get_value("Subscription Plan", {"plan_name": first_plan}, "custom_project")
             if real_name:
                 doc_fields[prj_field] = real_name
 
@@ -2358,10 +2520,46 @@ def process_incoming_integration_payload(payload=None):
             if real_name:
                 doc_fields[plan_field] = real_name
 
+    for territory_field in ["territory", "custom_territory"]:
+        if meta.has_field(territory_field) and doc_fields.get(territory_field):
+            territory_val = doc_fields[territory_field]
+            real_name = (
+                frappe.db.get_value("Territory", {"territory_name": territory_val}, "name")
+                or frappe.db.get_value("Territory", territory_val, "name")
+                or frappe.db.get_value("CRM Territory", {"territory_name": territory_val}, "name")
+                or frappe.db.get_value("CRM Territory", territory_val, "name")
+            )
+            if not real_name:
+                try:
+                    t_doc = frappe.get_doc({"doctype": "Territory", "territory_name": territory_val})
+                    t_doc.insert(ignore_permissions=True)
+                    real_name = t_doc.name
+                except Exception:
+                    try:
+                        t_doc = frappe.get_doc({"doctype": "CRM Territory", "territory_name": territory_val})
+                        t_doc.insert(ignore_permissions=True)
+                        real_name = t_doc.name
+                    except Exception:
+                        pass
+            if real_name:
+                doc_fields[territory_field] = real_name
+
+    if target_doctype == "Subscription":
+        if not doc_fields.get("party") and company_code:
+            cust_name = frappe.db.get_value("Customer", {"custom_project_company": company_code}, "name")
+            if cust_name:
+                doc_fields["party_type"] = "Customer"
+                doc_fields["party"] = cust_name
+
     try:
         existing = None
         if doc_fields.get("name"):
             existing = frappe.db.exists(target_doctype, doc_fields["name"])
+
+        if not existing and doc_fields.get("custom_company_code") and target_doctype == "CRM Lead":
+            existing_lead = frappe.db.get_value("CRM Lead", {"custom_company_code": doc_fields["custom_company_code"]}, "name")
+            if existing_lead:
+                existing = existing_lead
 
         if existing:
             doc = frappe.get_doc(target_doctype, existing)
@@ -2398,7 +2596,7 @@ def process_incoming_integration_payload(payload=None):
         create_integration_log(
             status="Success",
             direction="Inbound",
-            trigger_source="Webhook / API",
+            trigger_source="API Endpoint",
             reference_doctype=target_doctype,
             reference_name=doc.name,
             company_code=company_code,
@@ -2418,7 +2616,7 @@ def process_incoming_integration_payload(payload=None):
         create_integration_log(
             status="Failed",
             direction="Inbound",
-            trigger_source="Webhook / API",
+            trigger_source="API Endpoint",
             reference_doctype=target_doctype,
             reference_name=doc_fields.get("name"),
             company_code=company_code,
@@ -3062,6 +3260,159 @@ def create_user_referral_code(user, referral_code):
     return doc.name
 
 
+def get_customer_by_company_or_deal(deal_doc):
+    if isinstance(deal_doc, str):
+        deal_doc = frappe.get_doc("CRM Deal", deal_doc)
+
+    comp_code = deal_doc.get("custom_company_code")
+    if comp_code:
+        cust_name = frappe.db.get_value(
+            "Customer",
+            {"custom_project_company": comp_code},
+            "name",
+        )
+        if cust_name:
+            return cust_name
+        return None
+
+    return (
+        deal_doc.get("customer")
+        or deal_doc.get("erpnext_customer")
+        or frappe.db.get_value("CRM Deal", deal_doc.name, "erpnext_customer")
+        or frappe.db.get_value("Customer", {"crm_deal": deal_doc.name}, "name")
+    )
+
+
+@frappe.whitelist()
+def create_customer_for_deal_by_company_code(customer_data=None):
+    """
+    Overridden customer creation logic for CRM Deals in xpertintegration.
+    Matches and creates Customer records strictly by company code (custom_project_company),
+    bypassing the standard organization name-based lookup.
+    Monkey-patched into erpnext.crm.frappe_crm_api.create_customer to ensure system-wide consistency.
+    """
+    from erpnext.crm.frappe_crm_api import (
+        validate_frappe_crm_sync,
+        CUSTOMER_ALLOWED_FIELDS,
+        create_contacts,
+        create_address,
+    )
+
+    try:
+        validate_frappe_crm_sync()
+    except Exception:
+        pass
+
+    if not customer_data:
+        customer_data = frappe.form_dict
+
+    # Handle if passed a deal_doc or string deal_name directly
+    if isinstance(customer_data, str):
+        if frappe.db.exists("CRM Deal", customer_data):
+            deal_doc = frappe.get_doc("CRM Deal", customer_data)
+            customer_data = {
+                "crm_deal": deal_doc.name,
+                "customer_name": deal_doc.organization
+                or deal_doc.lead_name
+                or deal_doc.name,
+                "custom_project_company": deal_doc.get("custom_company_code"),
+                "territory": deal_doc.get("territory"),
+                "default_currency": deal_doc.get("currency"),
+                "industry": deal_doc.get("industry"),
+                "website": deal_doc.get("website"),
+            }
+        else:
+            try:
+                customer_data = json.loads(customer_data)
+            except Exception:
+                customer_data = {}
+    elif hasattr(customer_data, "doctype") and customer_data.doctype == "CRM Deal":
+        deal_doc = customer_data
+        customer_data = {
+            "crm_deal": deal_doc.name,
+            "customer_name": deal_doc.organization
+            or deal_doc.lead_name
+            or deal_doc.name,
+            "custom_project_company": deal_doc.get("custom_company_code"),
+            "territory": deal_doc.get("territory"),
+            "default_currency": deal_doc.get("currency"),
+            "industry": deal_doc.get("industry"),
+            "website": deal_doc.get("website"),
+        }
+
+    crm_deal = customer_data.get("crm_deal")
+    comp_code = customer_data.get("custom_project_company") or customer_data.get(
+        "custom_company_code"
+    )
+    if not comp_code and crm_deal and frappe.db.exists("CRM Deal", crm_deal):
+        comp_code = frappe.db.get_value("CRM Deal", crm_deal, "custom_company_code")
+
+    if comp_code:
+        comp_code = str(comp_code).strip()
+
+    customer_name = None
+
+    # 1. Match strictly by company code first
+    if comp_code:
+        customer_name = frappe.db.get_value(
+            "Customer", {"custom_project_company": comp_code}, "name"
+        )
+    else:
+        # Fallback only if no company code is present
+        customer_name = frappe.db.exists(
+            "Customer", {"customer_name": customer_data.get("customer_name")}
+        )
+
+    # 2. Create new Customer record if not found
+    if not customer_name:
+        customer = frappe.new_doc("Customer")
+        allowed_fields = set(CUSTOMER_ALLOWED_FIELDS) | {
+            "custom_project_company",
+            "custom_plan",
+        }
+        for field in allowed_fields:
+            if customer_data.get(field) is not None:
+                customer.set(field, customer_data.get(field))
+
+        if comp_code:
+            customer.set("custom_project_company", comp_code)
+
+        customer.flags.ignore_permissions = True
+        customer.insert(ignore_permissions=True)
+        customer_name = customer.name
+
+    # 3. Attach Contacts and Address if provided
+    if customer_data.get("contacts"):
+        contacts = customer_data.get("contacts")
+        if isinstance(contacts, str):
+            try:
+                contacts = json.loads(contacts)
+            except Exception:
+                contacts = []
+        if contacts:
+            create_contacts(contacts, customer_name, "Customer", customer_name)
+
+    if customer_data.get("address"):
+        create_address("Customer", customer_name, customer_data.get("address"))
+
+    if crm_deal:
+        frappe.db.set_value("CRM Deal", crm_deal, "erpnext_customer", customer_name)
+        frappe.publish_realtime("crm_customer_created")
+
+    return customer_name
+
+
+# System-wide monkey patch to ensure all customer creations follow this pattern without altering core files
+try:
+    import erpnext.crm.frappe_crm_api
+
+    erpnext.crm.frappe_crm_api.create_customer = (
+        create_customer_for_deal_by_company_code
+    )
+except Exception:
+    pass
+
+
 @frappe.whitelist()
 def process_deal_billing_pipeline(deal_doc):
     """
@@ -3076,65 +3427,37 @@ def process_deal_billing_pipeline(deal_doc):
         return {}
 
     # STEP 1: CUSTOMER CREATION / VERIFICATION
-    cust_name = (
-        deal_doc.get("customer")
-        or deal_doc.get("erpnext_customer")
-        or frappe.db.get_value("CRM Deal", deal_doc.name, "erpnext_customer")
-        or frappe.db.get_value("Customer", {"crm_deal": deal_doc.name}, "name")
-    )
-    if not cust_name and deal_doc.get("custom_company_code"):
-        cust_name = frappe.db.get_value(
-            "Customer",
-            {"custom_project_company": deal_doc.get("custom_company_code")},
-            "name",
-        )
+    cust_name = get_customer_by_company_or_deal(deal_doc)
 
     if not cust_name:
-        # Fallback safeguard to ensure deal_doc has organization or lead_name for Customer creation
-        if not deal_doc.organization and not deal_doc.lead_name:
-            if deal_doc.lead:
-                deal_doc.lead_name = frappe.db.get_value(
-                    "CRM Lead", deal_doc.lead, "lead_name"
-                )
-            if not deal_doc.lead_name and deal_doc.email:
-                deal_doc.lead_name = deal_doc.email.split("@")[0].capitalize()
-            if not deal_doc.lead_name:
-                deal_doc.lead_name = deal_doc.name
-
         try:
-            from crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings import (
-                create_customer_from_deal,
-            )
-
-            settings = frappe.get_single("ERPNext CRM Settings")
-            create_customer_from_deal(deal_doc, settings)
+            cust_name = create_customer_for_deal_by_company_code(deal_doc)
         except Exception as e:
             err_msg = str(e)
-            if "ValidationError" in err_msg or "{" in err_msg or "Traceback" in err_msg or "Failed to verify" in err_msg:
+            if (
+                "ValidationError" in err_msg
+                or "{" in err_msg
+                or "Traceback" in err_msg
+                or "Failed to verify" in err_msg
+            ):
                 comp_code = deal_doc.get("custom_company_code") or ""
                 proj_code = deal_doc.get("custom_project") or ""
                 if comp_code and proj_code:
-                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>.")
+                    frappe.throw(
+                        f"Company <b>{comp_code}</b> does not exist in project <b>{proj_code}</b>."
+                    )
                 elif comp_code:
-                    frappe.throw(f"Company <b>{comp_code}</b> does not exist in the project.")
+                    frappe.throw(
+                        f"Company <b>{comp_code}</b> does not exist in the project."
+                    )
                 else:
                     frappe.throw("Company does not exist in the project.")
             else:
                 frappe.throw(err_msg)
 
         deal_doc.reload()
-        cust_name = (
-            deal_doc.get("customer")
-            or deal_doc.get("erpnext_customer")
-            or frappe.db.get_value("CRM Deal", deal_doc.name, "erpnext_customer")
-            or frappe.db.get_value("Customer", {"crm_deal": deal_doc.name}, "name")
-        )
-        if not cust_name and deal_doc.get("custom_company_code"):
-            cust_name = frappe.db.get_value(
-                "Customer",
-                {"custom_project_company": deal_doc.get("custom_company_code")},
-                "name",
-            )
+        if not cust_name:
+            cust_name = get_customer_by_company_or_deal(deal_doc)
 
     if not cust_name or not frappe.db.exists("Customer", cust_name):
         frappe.throw(
@@ -3148,6 +3471,12 @@ def process_deal_billing_pipeline(deal_doc):
         cust_doc.db_set("custom_plan", deal_doc.custom_plan)
     if not cust_doc.get("crm_deal"):
         cust_doc.db_set("crm_deal", deal_doc.name)
+    if not cust_doc.get("custom_project_company") and deal_doc.get(
+        "custom_company_code"
+    ):
+        cust_doc.db_set("custom_project_company", deal_doc.custom_company_code)
+    if not deal_doc.get("erpnext_customer"):
+        deal_doc.db_set("erpnext_customer", cust_name)
 
     # STEP 2: SUBSCRIPTION CREATION / VERIFICATION
     sub_name = frappe.db.get_value(
@@ -3219,6 +3548,9 @@ def process_deal_billing_pipeline(deal_doc):
                     pe.reference_no = deal_doc.custom_reference_number
                 if deal_doc.get("custom_payment_date"):
                     pe.reference_date = deal_doc.custom_payment_date
+                    pe.posting_date = deal_doc.custom_payment_date
+                elif pe.reference_date:
+                    pe.posting_date = pe.reference_date
                 if deal_doc.get("custom_account_paid_to"):
                     pe.paid_to = deal_doc.custom_account_paid_to
 
@@ -3259,75 +3591,68 @@ def rerun_deal_subscription_process(deal_name):
         )
 
     # 1. Identify Customer
-    cust_name = deal_doc.get("customer") or frappe.db.get_value(
-        "Customer", {"crm_deal": deal_name}, "name"
-    )
-    if not cust_name and deal_doc.get("custom_company_code"):
-        cust_name = frappe.db.get_value(
-            "Customer",
-            {"custom_project_company": deal_doc.get("custom_company_code")},
-            "name",
+    cust_name = get_customer_by_company_or_deal(deal_doc)
+
+    # 2. Cancel and Delete existing linked documents (Payment Entry, Sales Invoice, Subscription) if Customer exists
+    if cust_name:
+        subscriptions = frappe.get_all(
+            "Subscription", filters={"party": cust_name}, fields=["name", "docstatus"]
         )
 
-    if not cust_name:
-        frappe.throw(f"No Customer linked to Deal '{deal_name}' found to rerun.")
-
-    # 2. Cancel and Delete existing linked documents (Payment Entry, Sales Invoice, Subscription)
-    subscriptions = frappe.get_all(
-        "Subscription", filters={"party": cust_name}, fields=["name", "docstatus"]
-    )
-
-    for sub_item in subscriptions:
-        sub_name = sub_item.name
-        invoices = frappe.get_all(
-            "Sales Invoice",
-            filters={"subscription": sub_name},
-            fields=["name", "docstatus"],
-        )
-        for inv_item in invoices:
-            inv_name = inv_item.name
-            pe_refs = frappe.get_all(
-                "Payment Entry Reference",
-                filters={
-                    "reference_doctype": "Sales Invoice",
-                    "reference_name": inv_name,
-                },
-                fields=["parent"],
+        for sub_item in subscriptions:
+            sub_name = sub_item.name
+            invoices = frappe.get_all(
+                "Sales Invoice",
+                filters={"subscription": sub_name},
+                fields=["name", "docstatus"],
             )
-            for ref in pe_refs:
-                pe_name = ref.parent
-                if frappe.db.exists("Payment Entry", pe_name):
-                    pe_doc = frappe.get_doc("Payment Entry", pe_name)
-                    if pe_doc.docstatus == 1:
-                        pe_doc.flags.ignore_permissions = True
-                        pe_doc.cancel()
-                    if pe_doc.docstatus in [0, 2]:
+            for inv_item in invoices:
+                inv_name = inv_item.name
+                pe_refs = frappe.get_all(
+                    "Payment Entry Reference",
+                    filters={
+                        "reference_doctype": "Sales Invoice",
+                        "reference_name": inv_name,
+                    },
+                    fields=["parent"],
+                )
+                for ref in pe_refs:
+                    pe_name = ref.parent
+                    if frappe.db.exists("Payment Entry", pe_name):
+                        pe_doc = frappe.get_doc("Payment Entry", pe_name)
+                        if pe_doc.docstatus == 1:
+                            pe_doc.flags.ignore_permissions = True
+                            pe_doc.cancel()
+                        if pe_doc.docstatus in [0, 2]:
+                            frappe.delete_doc(
+                                "Payment Entry",
+                                pe_name,
+                                force=True,
+                                ignore_permissions=True,
+                            )
+
+                if frappe.db.exists("Sales Invoice", inv_name):
+                    inv_doc = frappe.get_doc("Sales Invoice", inv_name)
+                    if inv_doc.docstatus == 1:
+                        inv_doc.flags.ignore_permissions = True
+                        inv_doc.cancel()
+                    if inv_doc.docstatus in [0, 2]:
                         frappe.delete_doc(
-                            "Payment Entry",
-                            pe_name,
+                            "Sales Invoice",
+                            inv_name,
                             force=True,
                             ignore_permissions=True,
                         )
 
-            if frappe.db.exists("Sales Invoice", inv_name):
-                inv_doc = frappe.get_doc("Sales Invoice", inv_name)
-                if inv_doc.docstatus == 1:
-                    inv_doc.flags.ignore_permissions = True
-                    inv_doc.cancel()
-                if inv_doc.docstatus in [0, 2]:
+            if frappe.db.exists("Subscription", sub_name):
+                sub_doc = frappe.get_doc("Subscription", sub_name)
+                if sub_doc.docstatus == 1:
+                    sub_doc.flags.ignore_permissions = True
+                    sub_doc.cancel()
+                if sub_doc.docstatus in [0, 2]:
                     frappe.delete_doc(
-                        "Sales Invoice", inv_name, force=True, ignore_permissions=True
+                        "Subscription", sub_name, force=True, ignore_permissions=True
                     )
-
-        if frappe.db.exists("Subscription", sub_name):
-            sub_doc = frappe.get_doc("Subscription", sub_name)
-            if sub_doc.docstatus == 1:
-                sub_doc.flags.ignore_permissions = True
-                sub_doc.cancel()
-            if sub_doc.docstatus in [0, 2]:
-                frappe.delete_doc(
-                    "Subscription", sub_name, force=True, ignore_permissions=True
-                )
 
     # 3. Re-run creation pipeline with strict error checking
     result = process_deal_billing_pipeline(deal_doc)
@@ -3398,17 +3723,7 @@ def check_deal_billing_status(deal_name):
         return {"should_show_rerun": True, "reason": "Price Mismatch"}
 
     # Show rerun button if Customer is missing
-    cust_name = (
-        deal.get("erpnext_customer")
-        or frappe.db.get_value("CRM Deal", deal_name, "erpnext_customer")
-        or frappe.db.get_value("Customer", {"crm_deal": deal_name}, "name")
-    )
-    if not cust_name and deal.get("custom_company_code"):
-        cust_name = frappe.db.get_value(
-            "Customer",
-            {"custom_project_company": deal.get("custom_company_code")},
-            "name",
-        )
+    cust_name = get_customer_by_company_or_deal(deal)
 
     if not cust_name:
         return {"should_show_rerun": True, "reason": "Missing Customer"}
@@ -3504,11 +3819,7 @@ def rerun_incomplete_billing_deals(exclude_deals=None):
             continue
 
         # Identify Customer
-        cust_name = frappe.db.get_value("Customer", {"crm_deal": deal_name}, "name")
-        if not cust_name and deal.custom_company_code:
-            cust_name = frappe.db.get_value(
-                "Customer", {"custom_project_company": deal.custom_company_code}, "name"
-            )
+        cust_name = get_customer_by_company_or_deal(deal)
 
         # Requirement: Customer MUST be created
         if not cust_name or not frappe.db.exists("Customer", cust_name):
@@ -3628,7 +3939,10 @@ def on_file_after_insert_crm_deal(doc, method=None):
                 return
 
             filename = (doc.file_name or file_url).lower()
-            is_image_or_pdf = any(filename.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".pdf", ".gif"])
+            is_image_or_pdf = any(
+                filename.endswith(ext)
+                for ext in [".jpg", ".jpeg", ".png", ".webp", ".pdf", ".gif"]
+            )
 
             if not is_image_or_pdf:
                 return
@@ -3638,17 +3952,29 @@ def on_file_after_insert_crm_deal(doc, method=None):
 
             deal = frappe.get_doc("CRM Deal", deal_name)
 
-            if doc.attached_to_field == "custom_payment_proof" or not deal.get("custom_payment_proof"):
-                frappe.db.set_value("CRM Deal", deal_name, "custom_payment_proof", file_url, update_modified=True)
+            if doc.attached_to_field == "custom_payment_proof" or not deal.get(
+                "custom_payment_proof"
+            ):
+                frappe.db.set_value(
+                    "CRM Deal",
+                    deal_name,
+                    "custom_payment_proof",
+                    file_url,
+                    update_modified=True,
+                )
                 deal.custom_payment_proof = file_url
 
             paid_amount = flt(deal.get("custom_paid_amount"))
             payment_date = deal.get("custom_payment_date")
-            ref_number = deal.get("custom_reference_number") or deal.get("custom_transaction_id")
+            ref_number = deal.get("custom_reference_number") or deal.get(
+                "custom_transaction_id"
+            )
 
-            if doc.attached_to_field == "custom_payment_proof" or (paid_amount == 0 and not payment_date and not ref_number):
+            if doc.attached_to_field == "custom_payment_proof" or (
+                paid_amount == 0 and not payment_date and not ref_number
+            ):
                 from xpertintegration.api.ai_analytics import payment_proof_analyzer
+
                 payment_proof_analyzer.process_deal_doc(deal)
     except Exception as e:
         frappe.logger().exception(f"Error in on_file_after_insert_crm_deal: {e}")
-

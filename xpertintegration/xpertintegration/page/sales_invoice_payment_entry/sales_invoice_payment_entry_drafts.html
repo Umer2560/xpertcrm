@@ -1,0 +1,150 @@
+{% if (data.length === 0) { %}
+<div class="uip-empty-state">
+    <div class="uip-empty-icon mb-3"><i class="fa fa-folder-open-o fa-4x text-muted" style="opacity: 0.6"></i></div>
+    <h5>No Draft Payment Entries Found</h5>
+    <p class="text-muted">There are currently no draft payment entries pending submission.</p>
+</div>
+{% } else { %}
+<div class="uip-card-list">
+    {% for (let i=0, l=data.length; i<l; i++) { %} {% let row=data[i]; %}
+    <div class="uip-card uip-card-draft" data-name="{{ row.name }}">
+        <!-- Left Column: Details -->
+        <div class="uip-col-details">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <a href="{{ row.link }}" target="_blank" class="uip-invoice-link">
+                    <i class="fa fa-file-text-o mr-1"></i> {{ row.name }}
+                </a>
+                <span class="badge badge-warning text-dark font-weight-bold uppercase" style="padding: 6px 12px; border-radius: 20px; font-size: 11px;">
+                    Draft
+                </span>
+            </div>
+
+            <div class="uip-customer-info mb-3">
+                <div class="uip-customer-name">
+                    <i class="fa fa-building-o mr-1 text-muted"></i> <strong>{{ row.customer_name }}</strong>
+                </div>
+                {% if (row.customer && row.customer !== row.customer_name) { %}
+                <div class="uip-customer-code text-muted small mt-1">
+                    <i class="fa fa-id-card-o mr-1"></i> {{ row.customer }}
+                </div>
+                {% } %}
+                {% if (row.sales_invoice) { %}
+                <div class="mt-2 text-muted small">
+                    <i class="fa fa-link mr-1"></i> Sales Invoice: 
+                    <a href="{{ row.sales_invoice_link }}" target="_blank" class="font-weight-bold text-primary">
+                        {{ row.sales_invoice }}
+                    </a>
+                </div>
+                {% } %}
+            </div>
+
+            <div class="uip-details-grid">
+                <div class="uip-detail-item">
+                    <span class="uip-label"><i class="fa fa-calendar-o fa-fw mr-1"></i> Payment Date</span>
+                    <span class="uip-value">{{ row.posting_date || "-" }}</span>
+                </div>
+
+                <div class="uip-detail-item">
+                    <span class="uip-label"><i class="fa fa-hashtag fa-fw mr-1"></i> Ref Code</span>
+                    <span class="uip-value">{{ row.reference_number || "-" }}</span>
+                </div>
+
+                <div class="uip-detail-item uip-detail-highlight" style="grid-column: span 2;">
+                    <span class="uip-label"><i class="fa fa-money fa-fw mr-1 text-primary"></i> Draft Amount</span>
+                    <span class="uip-value uip-amount-total" style="font-size: 16px;">{{ format_currency(row.paid_amount, row.currency) }}</span>
+                </div>
+            </div>
+
+            {% if (row.payment_proof) { %}
+            <div class="mt-3 p-2 bg-light rounded border d-flex align-items-center justify-content-between">
+                <span class="small font-weight-bold text-muted"><i class="fa fa-paperclip mr-1"></i> Attachment:</span>
+                <a href="{{ row.payment_proof }}" target="_blank" class="btn btn-xs btn-outline-primary">
+                    <i class="fa fa-external-link mr-1"></i> View File
+                </a>
+            </div>
+            {% } %}
+        </div>
+
+        <!-- Right Column: Edit Form -->
+        <div class="uip-col-action">
+            <h6 class="uip-action-header mb-3">
+                <i class="fa fa-pencil-square-o text-primary mr-1"></i> Edit & Submit Draft
+            </h6>
+
+            <div class="form-row">
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Payment Amount <span class="text-danger">*</span></label>
+                    <input type="number" step="any" min="0" class="form-control uip-amount-input" 
+                           value="{{ row.paid_amount }}" placeholder="0.00" />
+                </div>
+
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Payment Date <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control uip-date-input" 
+                           value="{{ row.raw_posting_date }}" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Reference Code / Number</label>
+                    <input type="text" class="form-control uip-ref-input" 
+                           value="{{ row.reference_number }}" placeholder="e.g. TRX12345678" />
+                </div>
+
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Mode of Payment</label>
+                    <div class="uip-mop-control"></div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Account Paid To</label>
+                    <div class="uip-apt-control"></div>
+                </div>
+
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Payment Proof Attachment</label>
+                    <div class="uip-proof-control"></div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="uip-field-label">Remarks</label>
+                <textarea class="form-control uip-remarks-input" rows="2" 
+                          placeholder="Add optional notes or remarks...">{{ row.remarks }}</textarea>
+            </div>
+
+            <div class="d-flex align-items-center gap-2 mt-3" style="gap: 10px;">
+                <button class="btn btn-success flex-grow-1 uip-btn-update-draft" data-name="{{ row.name }}" style="font-weight: 600;">
+                    <i class="fa fa-save mr-1"></i> Update Draft
+                </button>
+                <button class="btn btn-primary flex-grow-1 uip-btn-submit-draft" data-name="{{ row.name }}" style="font-weight: 600;">
+                    <i class="fa fa-check-circle mr-1"></i> Submit Payment
+                </button>
+                <button class="btn btn-outline-danger uip-btn-delete-draft" data-name="{{ row.name }}" title="Delete Draft" style="font-weight: 600;">
+                    <i class="fa fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+    {% } %}
+</div>
+{% } %}
+
+{% if (total_pages > 1) { %}
+<div class="d-flex justify-content-between align-items-center mt-4 bg-white p-3 rounded border shadow-sm uip-pagination-bar" style="border-radius: 12px !important;">
+    <div class="text-muted small">
+        Showing page <b>{{ current_page }}</b> of <b>{{ total_pages }}</b> ({{ total_records }} draft entries)
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-light border btn-prev" {% if (current_page === 1) { %}disabled{% } %}>
+            <i class="fa fa-chevron-left"></i> Previous
+        </button>
+        <button class="btn btn-light border btn-next" {% if (current_page === total_pages) { %}disabled{% } %}>
+            Next <i class="fa fa-chevron-right"></i>
+        </button>
+    </div>
+</div>
+{% } %}

@@ -1,0 +1,157 @@
+{% if (data.length === 0) { %}
+<div class="uip-empty-state">
+    <div class="uip-empty-icon mb-3"><i class="fa fa-check-circle fa-4x text-success" style="opacity: 0.8"></i></div>
+    <h5>No Pending Invoices Found</h5>
+    <p class="text-muted">All submitted sales invoices without a CRM deal have been paid or match no filter criteria.</p>
+</div>
+{% } else { %}
+<div class="uip-card-list">
+    {% for (let i=0, l=data.length; i<l; i++) { %} {% let row=data[i]; %}
+    <div class="uip-card" data-name="{{ row.name }}">
+        <!-- Left Column: Details -->
+        <div class="uip-col-details">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <a href="{{ row.link }}" target="_blank" class="uip-invoice-link">
+                    <i class="fa fa-file-text-o mr-1"></i> {{ row.name }}
+                </a>
+                <span class="badge uip-badge-status uip-badge-{{ row.status_slug }}">
+                    {{ row.status }}
+                </span>
+            </div>
+
+            <div class="uip-customer-info mb-3">
+                <div class="uip-customer-name">
+                    <i class="fa fa-building-o mr-1 text-muted"></i> <strong>{{ row.customer_name }}</strong>
+                </div>
+                {% if (row.customer && row.customer !== row.customer_name) { %}
+                <div class="uip-customer-code text-muted small mt-1">
+                    <i class="fa fa-id-card-o mr-1"></i> {{ row.customer }}
+                </div>
+                {% } %}
+                {% if (row.contact_mobile) { %}
+                <div class="uip-contact-info text-muted small mt-1">
+                    <i class="fa fa-phone mr-1"></i> <a href="tel:{{ row.contact_mobile }}" class="text-muted">{{ row.contact_mobile }}</a>
+                    {% if (row.contact_email) { %} &bull; <i class="fa fa-envelope-o mr-1"></i> {{ row.contact_email }} {% } %}
+                </div>
+                {% } %}
+            </div>
+
+            <div class="uip-details-grid">
+                <div class="uip-detail-item">
+                    <span class="uip-label"><i class="fa fa-calendar-o fa-fw mr-1"></i> Posted Date</span>
+                    <span class="uip-value">{{ row.posting_date || "-" }}</span>
+                </div>
+
+                <div class="uip-detail-item">
+                    <span class="uip-label"><i class="fa fa-clock-o fa-fw mr-1"></i> Due Date</span>
+                    <span class="uip-value">{{ row.due_date || "-" }}</span>
+                </div>
+
+                <div class="uip-detail-item">
+                    <span class="uip-label"><i class="fa fa-folder-o fa-fw mr-1"></i> Project</span>
+                    <span class="uip-value">{{ row.project || "-" }}</span>
+                </div>
+
+                <div class="uip-detail-item">
+                    <span class="uip-label"><i class="fa fa-cube fa-fw mr-1"></i> Plan</span>
+                    <span class="uip-value">{{ row.custom_plan || "-" }}</span>
+                </div>
+
+                <div class="uip-detail-item uip-detail-highlight">
+                    <span class="uip-label"><i class="fa fa-money fa-fw mr-1 text-primary"></i> Grand Total</span>
+                    <span class="uip-value uip-amount-total">{{ format_currency(row.grand_total, row.currency) }}</span>
+                </div>
+
+                <div class="uip-detail-item uip-detail-alert">
+                    <span class="uip-label"><i class="fa fa-exclamation-circle fa-fw mr-1 text-danger"></i> Outstanding</span>
+                    <span class="uip-value uip-amount-outstanding">{{ format_currency(row.outstanding_amount, row.currency) }}</span>
+                </div>
+            </div>
+
+            {% if (row.draft_payment_entry) { %}
+            <div class="alert alert-warning mt-3 mb-0 py-2 px-3 small d-flex align-items-center justify-content-between" style="border-radius: 8px;">
+                <div>
+                    <i class="fa fa-info-circle mr-1"></i> Draft Payment Entry <b>{{ row.draft_payment_entry }}</b> created.
+                </div>
+                <button class="btn btn-xs btn-outline-dark uip-btn-switch-draft" data-draft="{{ row.draft_payment_entry }}">
+                    Edit in Drafts <i class="fa fa-arrow-right ml-1"></i>
+                </button>
+            </div>
+            {% } %}
+        </div>
+
+        <!-- Right Column: Payment Entry Form -->
+        <div class="uip-col-action">
+            <h6 class="uip-action-header mb-3">
+                <i class="fa fa-file-text-o text-primary mr-1"></i> Create Draft Payment Entry
+            </h6>
+
+            <div class="form-row">
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Payment Amount <span class="text-danger">*</span></label>
+                    <input type="number" step="any" min="0" class="form-control uip-amount-input" 
+                           value="{{ row.outstanding_amount }}" placeholder="0.00" />
+                </div>
+
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Payment Date <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control uip-date-input" 
+                           value="{{ row.raw_posting_date }}" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Reference Code / Number</label>
+                    <input type="text" class="form-control uip-ref-input" 
+                           placeholder="e.g. TRX12345678" />
+                </div>
+
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Mode of Payment</label>
+                    <div class="uip-mop-control"></div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Account Paid To</label>
+                    <div class="uip-apt-control"></div>
+                </div>
+
+                <div class="col-md-6 col-sm-12 mb-3">
+                    <label class="uip-field-label">Payment Proof Attachment</label>
+                    <div class="uip-proof-control"></div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="uip-field-label">Remarks</label>
+                <textarea class="form-control uip-remarks-input" rows="2" 
+                          placeholder="Add optional notes or remarks..."></textarea>
+            </div>
+
+            <button class="btn btn-primary btn-block uip-btn-submit mt-2" data-name="{{ row.name }}">
+                <i class="fa fa-save mr-1"></i> Create Draft Payment Entry
+            </button>
+        </div>
+    </div>
+    {% } %}
+</div>
+{% } %}
+
+{% if (total_pages > 1) { %}
+<div class="d-flex justify-content-between align-items-center mt-4 bg-white p-3 rounded border shadow-sm uip-pagination-bar" style="border-radius: 12px !important;">
+    <div class="text-muted small">
+        Showing page <b>{{ current_page }}</b> of <b>{{ total_pages }}</b> ({{ total_records }} invoices)
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-light border btn-prev" {% if (current_page === 1) { %}disabled{% } %}>
+            <i class="fa fa-chevron-left"></i> Previous
+        </button>
+        <button class="btn btn-light border btn-next" {% if (current_page === total_pages) { %}disabled{% } %}>
+            Next <i class="fa fa-chevron-right"></i>
+        </button>
+    </div>
+</div>
+{% } %}

@@ -204,6 +204,7 @@ doc_events = {
         "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
     },
     "Payment Entry": {
+        "before_insert": "xpertintegration.api.integration.before_payment_entry_insert",
         "on_cancel": "xpertintegration.api.integration.broadcast_crm_document",
         "on_trash": "xpertintegration.api.integration.broadcast_delete_crm_document",
     },
@@ -268,6 +269,7 @@ override_whitelisted_methods = {
     "crm.api.activities.get_activities": "xpertintegration.api.activities.get_activities",
     "crm.fcrm.doctype.crm_lead.crm_lead.convert_to_deal": "xpertintegration.api.integration.custom_convert_to_deal",
     "crm.api.doc.get_data": "xpertintegration.api.doc.custom_get_data",
+    "erpnext.crm.frappe_crm_api.create_customer": "xpertintegration.api.integration.create_customer_for_deal_by_company_code",
 }
 
 #
