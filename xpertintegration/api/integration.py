@@ -56,13 +56,22 @@ def create_integration_log(
         # Normalize Select field options to match DocType constraints
         valid_statuses = {"Success", "Failed", "Pending", "Retrying"}
         if status not in valid_statuses:
-            status = "Failed" if "fail" in str(status).lower() or "error" in str(status).lower() else "Success"
+            status = (
+                "Failed"
+                if "fail" in str(status).lower() or "error" in str(status).lower()
+                else "Success"
+            )
 
         valid_directions = {"Outbound", "Inbound", "Internal Sync"}
         if direction not in valid_directions:
             direction = "Inbound" if "in" in str(direction).lower() else "Outbound"
 
-        valid_triggers = {"DocType Hook", "API Endpoint", "Scheduled Task", "Manual Trigger"}
+        valid_triggers = {
+            "DocType Hook",
+            "API Endpoint",
+            "Scheduled Task",
+            "Manual Trigger",
+        }
         if trigger_source not in valid_triggers:
             ts_str = str(trigger_source).lower()
             if "api" in ts_str or "webhook" in ts_str or "rest" in ts_str:
@@ -607,16 +616,23 @@ def get_doc_project(doc):
         if doc.get("party_type") == "Customer" and doc.get("party"):
             project = frappe.db.get_value("Customer", doc.party, "custom_project")
         if not project and doc.get("custom_project_company"):
-            project = frappe.db.get_value("Customer", {"custom_project_company": doc.get("custom_project_company")}, "custom_project")
+            project = frappe.db.get_value(
+                "Customer",
+                {"custom_project_company": doc.get("custom_project_company")},
+                "custom_project",
+            )
         if not project and doc.get("plans"):
             plans_data = doc.get("plans")
             if isinstance(plans_data, list):
                 for p_row in plans_data:
-                    p_name = getattr(p_row, "plan", None) or (p_row.get("plan") if isinstance(p_row, dict) else None)
+                    p_name = getattr(p_row, "plan", None) or (
+                        p_row.get("plan") if isinstance(p_row, dict) else None
+                    )
                     if p_name:
-                        project = (
-                            frappe.db.get_value("Subscription Plan", p_name, "custom_project")
-                            or frappe.db.get_value("Subscription Plan", {"plan_name": p_name}, "custom_project")
+                        project = frappe.db.get_value(
+                            "Subscription Plan", p_name, "custom_project"
+                        ) or frappe.db.get_value(
+                            "Subscription Plan", {"plan_name": p_name}, "custom_project"
                         )
                         if project:
                             break
@@ -2193,8 +2209,6 @@ def create_subscription(doc, method=None):
                 "custom_amount_paid": sale_price_sum,
                 "custom_project_company": doc.custom_project_company,
                 "custom_project": (deal_doc.custom_project if deal_doc else None),
-                "trial_period_start": (deal_doc.custom_trial_start_date if deal_doc else None),
-                "trial_period_end": (deal_doc.custom_trial_end_date if deal_doc else None),
             }
         )
         sub.insert(ignore_permissions=True)
@@ -2507,15 +2521,27 @@ def process_incoming_integration_payload(payload=None):
                 real_name = (
                     frappe.db.get_value("Project", {"project_name": comp_val}, "name")
                     or frappe.db.get_value("Project", comp_val, "name")
-                    or frappe.db.get_value("Customer", {"custom_project_company": comp_val}, "custom_project")
-                    or frappe.db.get_value("CRM Deal", {"custom_company_code": comp_val}, "custom_project")
+                    or frappe.db.get_value(
+                        "Customer",
+                        {"custom_project_company": comp_val},
+                        "custom_project",
+                    )
+                    or frappe.db.get_value(
+                        "CRM Deal", {"custom_company_code": comp_val}, "custom_project"
+                    )
                 )
             if not real_name and doc_fields.get("plans"):
                 plan_list = doc_fields["plans"]
                 if isinstance(plan_list, list) and len(plan_list) > 0:
                     first_plan = plan_list[0].get("plan")
                     if first_plan:
-                        real_name = frappe.db.get_value("Subscription Plan", first_plan, "custom_project") or frappe.db.get_value("Subscription Plan", {"plan_name": first_plan}, "custom_project")
+                        real_name = frappe.db.get_value(
+                            "Subscription Plan", first_plan, "custom_project"
+                        ) or frappe.db.get_value(
+                            "Subscription Plan",
+                            {"plan_name": first_plan},
+                            "custom_project",
+                        )
             if real_name:
                 doc_fields[prj_field] = real_name
 
@@ -2532,19 +2558,30 @@ def process_incoming_integration_payload(payload=None):
         if meta.has_field(territory_field) and doc_fields.get(territory_field):
             territory_val = doc_fields[territory_field]
             real_name = (
-                frappe.db.get_value("Territory", {"territory_name": territory_val}, "name")
+                frappe.db.get_value(
+                    "Territory", {"territory_name": territory_val}, "name"
+                )
                 or frappe.db.get_value("Territory", territory_val, "name")
-                or frappe.db.get_value("CRM Territory", {"territory_name": territory_val}, "name")
+                or frappe.db.get_value(
+                    "CRM Territory", {"territory_name": territory_val}, "name"
+                )
                 or frappe.db.get_value("CRM Territory", territory_val, "name")
             )
             if not real_name:
                 try:
-                    t_doc = frappe.get_doc({"doctype": "Territory", "territory_name": territory_val})
+                    t_doc = frappe.get_doc(
+                        {"doctype": "Territory", "territory_name": territory_val}
+                    )
                     t_doc.insert(ignore_permissions=True)
                     real_name = t_doc.name
                 except Exception:
                     try:
-                        t_doc = frappe.get_doc({"doctype": "CRM Territory", "territory_name": territory_val})
+                        t_doc = frappe.get_doc(
+                            {
+                                "doctype": "CRM Territory",
+                                "territory_name": territory_val,
+                            }
+                        )
                         t_doc.insert(ignore_permissions=True)
                         real_name = t_doc.name
                     except Exception:
@@ -2554,7 +2591,9 @@ def process_incoming_integration_payload(payload=None):
 
     if target_doctype == "Subscription":
         if not doc_fields.get("party") and company_code:
-            cust_name = frappe.db.get_value("Customer", {"custom_project_company": company_code}, "name")
+            cust_name = frappe.db.get_value(
+                "Customer", {"custom_project_company": company_code}, "name"
+            )
             if cust_name:
                 doc_fields["party_type"] = "Customer"
                 doc_fields["party"] = cust_name
@@ -2564,8 +2603,16 @@ def process_incoming_integration_payload(payload=None):
         if doc_fields.get("name"):
             existing = frappe.db.exists(target_doctype, doc_fields["name"])
 
-        if not existing and doc_fields.get("custom_company_code") and target_doctype == "CRM Lead":
-            existing_lead = frappe.db.get_value("CRM Lead", {"custom_company_code": doc_fields["custom_company_code"]}, "name")
+        if (
+            not existing
+            and doc_fields.get("custom_company_code")
+            and target_doctype == "CRM Lead"
+        ):
+            existing_lead = frappe.db.get_value(
+                "CRM Lead",
+                {"custom_company_code": doc_fields["custom_company_code"]},
+                "name",
+            )
             if existing_lead:
                 existing = existing_lead
 
@@ -2975,6 +3022,9 @@ def _execute_broadcast_delete(payload, doctype, docname, project_id):
 # SECTION 11: CUSTOM SUBSCRIPTION
 @frappe.whitelist()
 def validate_subscription(doc, method=None):
+    if doc.custom_update_trial_period == 1:
+        update_trial_period(doc)
+
     validate_plan_project_matching(doc)
 
     total_original_cost = 0.0
@@ -3008,71 +3058,6 @@ class CustomSubscription(Subscription):
     def validate(self):
         super().validate()
         validate_subscription(self)
-        self.update_invoice_dates_on_change()
-
-    def update_invoice_dates_on_change(self):
-        if self.is_new():
-            return
-
-        old_values = frappe.db.get_value(
-            "Subscription",
-            self.name,
-            ["start_date", "trial_period_end"],
-            as_dict=True
-        )
-
-        if old_values:
-            from frappe.utils import getdate
-            start_date_changed = getdate(self.start_date) != getdate(old_values.get("start_date"))
-            trial_end_changed = getdate(self.trial_period_end) != getdate(old_values.get("trial_period_end"))
-
-            if start_date_changed or trial_end_changed:
-                # 1. Recalculate base invoice period (Cycle 1) based on new dates
-                self.update_subscription_period(self.start_date)
-
-                # 2. Check if invoices are already generated
-                from frappe.utils import add_days
-                invoices_count = frappe.db.count("Sales Invoice", {"subscription": self.name, "docstatus": ["<", 2]})
-                
-                # 3. Fast-forward the period based on how many invoices were generated
-                if invoices_count > 0:
-                    for _ in range(invoices_count):
-                        # Move current_invoice_start forward to the next cycle
-                        next_start = add_days(self.current_invoice_end, 1)
-                        self.update_subscription_period(next_start)
-
-    def get_current_invoice_end(self, date=None):
-        """
-        Custom Override: Always calculate the invoice end date by adding the billing 
-        cycle to the invoice START date (`date`), rather than the Subscription `start_date`.
-        This ensures trials don't offset the first invoice to be a partial period.
-        """
-        from frappe.utils import getdate, add_to_date, get_last_day, add_months
-        
-        _current_invoice_end = None
-
-        if self.is_trialling() and getdate(date) < getdate(self.trial_period_end):
-            _current_invoice_end = self.trial_period_end
-        else:
-            billing_cycle_info = self.get_billing_cycle_data()
-            if billing_cycle_info:
-                # THIS is the custom fix: We add the interval directly to the `date` (which is current_invoice_start)
-                _current_invoice_end = add_to_date(date, **billing_cycle_info)
-            else:
-                _current_invoice_end = get_last_day(date)
-
-            if self.follow_calendar_months:
-                billing_info = self.get_billing_cycle_and_interval()
-                billing_interval_count = billing_info[0]["billing_interval_count"] if billing_info else 1
-                _end = add_months(getdate(date), billing_interval_count - 1)
-                _current_invoice_end = get_last_day(_end)
-
-            if self.end_date and getdate(_current_invoice_end) > getdate(self.end_date):
-                _current_invoice_end = self.end_date
-
-        return _current_invoice_end
-
-
 
     def get_items_from_plans(self, plans, prorate=0):
         if not plans:
@@ -4051,3 +4036,88 @@ def on_file_after_insert_crm_deal(doc, method=None):
                 payment_proof_analyzer.process_deal_doc(deal)
     except Exception as e:
         frappe.logger().exception(f"Error in on_file_after_insert_crm_deal: {e}")
+
+
+# Utilty Functions
+@frappe.whitelist()
+def update_trial_period(doc):
+    if isinstance(doc, str):
+        doc = frappe.parse_json(doc)
+    if isinstance(doc, dict):
+        doc = frappe._dict(doc)
+
+    doc_name = doc.get("name")
+    if not doc_name:
+        return
+
+    trial_end = doc.get("trial_period_end")
+
+    # Calculate new dates based on trial_period_end
+    from frappe.utils import add_days, add_months, add_years
+
+    if not trial_end:
+        return {
+            "status": "error",
+            "message": "trial_period_end is required to calculate new dates",
+        }
+
+    new_sub_start = add_days(trial_end, 1)
+    new_sub_end = add_years(trial_end, 1)
+
+    # Assuming current_invoice_start is trial_end + 1 day (since + 1 month would be after the end date)
+    new_inv_start = new_sub_start
+    new_inv_end = add_days(add_months(new_sub_start, 1), -1)
+
+    # Fetch corresponding Sales Invoices for this subscription
+    sales_invoices = frappe.get_all(
+        "Sales Invoice",
+        filters={"subscription": doc_name, "docstatus": ["!=", 2]},
+        pluck="name",
+    )
+
+    if len(sales_invoices) > 1:
+        frappe.throw(
+            f"Cannot update dates: Subscription {doc_name} has multiple active Sales Invoices."
+        )
+
+    sales_inv = sales_invoices[0] if sales_invoices else None
+
+    if sales_inv:
+        # Update the invoice dates (from_date and to_date are the standard fields in ERPNext)
+        frappe.db.set_value(
+            "Sales Invoice",
+            sales_inv,
+            {"from_date": new_inv_start, "to_date": new_inv_end},
+        )
+
+        # Update the Subscription dates
+        frappe.db.set_value(
+            "Subscription",
+            doc_name,
+            {
+                "start_date": new_sub_start,
+                "end_date": new_sub_end,
+                "current_invoice_start": add_months(new_inv_start, 1),
+                "current_invoice_end": add_months(new_inv_end, 1),
+            },
+        )
+
+    if not sales_inv:
+        frappe.db.set_value(
+            "Subscription",
+            doc_name,
+            {
+                "start_date": new_sub_start,
+                "end_date": new_sub_end,
+                "current_invoice_start": new_inv_start,
+                "current_invoice_end": new_inv_end,
+            },
+        )
+
+    frappe.db.commit()
+
+    print(new_inv_start, new_inv_end)
+    return {
+        "status": "success",
+        "message": f"Dates updated for Subscription {doc_name}",
+    }
