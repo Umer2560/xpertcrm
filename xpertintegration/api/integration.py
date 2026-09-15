@@ -2501,7 +2501,13 @@ def process_incoming_integration_payload(payload=None):
                     "Project", {"project_name": prj_val}, "name"
                 ) or frappe.db.get_value("Project", prj_val, "name")
             if not real_name and doc_fields.get("custom_project_company"):
-                real_name = frappe.db.get_value("Project", {"custom_company_code": doc_fields["custom_project_company"]}, "name") or frappe.db.get_value("Project", {"project_name": doc_fields["custom_project_company"]}, "name")
+                comp_val = doc_fields["custom_project_company"]
+                real_name = (
+                    frappe.db.get_value("Project", {"project_name": comp_val}, "name")
+                    or frappe.db.get_value("Project", comp_val, "name")
+                    or frappe.db.get_value("Customer", {"custom_project_company": comp_val}, "custom_project")
+                    or frappe.db.get_value("CRM Deal", {"custom_company_code": comp_val}, "custom_project")
+                )
             if not real_name and doc_fields.get("plans"):
                 plan_list = doc_fields["plans"]
                 if isinstance(plan_list, list) and len(plan_list) > 0:
