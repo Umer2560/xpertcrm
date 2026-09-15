@@ -2193,6 +2193,8 @@ def create_subscription(doc, method=None):
                 "custom_amount_paid": sale_price_sum,
                 "custom_project_company": doc.custom_project_company,
                 "custom_project": (deal_doc.custom_project if deal_doc else None),
+                "trial_period_start": (deal_doc.custom_trial_start_date if deal_doc else None),
+                "trial_period_end": (deal_doc.custom_trial_end_date if deal_doc else None),
             }
         )
         sub.insert(ignore_permissions=True)
@@ -3006,6 +3008,71 @@ class CustomSubscription(Subscription):
     def validate(self):
         super().validate()
         validate_subscription(self)
+        self.update_invoice_dates_on_change()
+
+    def update_invoice_dates_on_change(self):
+        if self.is_new():
+            return
+
+        old_values = frappe.db.get_value(
+            "Subscription",
+            self.name,
+            ["start_date", "trial_period_end"],
+            as_dict=True
+        )
+
+        if old_values:
+            from frappe.utils import getdate
+            start_date_changed = getdate(self.start_date) != getdate(old_values.get("start_date"))
+            trial_end_changed = getdate(self.trial_period_end) != getdate(old_values.get("trial_period_end"))
+
+            if start_date_changed or trial_end_changed:
+                # 1. Recalculate base invoice period (Cycle 1) based on new dates
+                self.update_subscription_period(self.start_date)
+
+                # 2. Check if invoices are already generated
+                from frappe.utils import add_days
+                invoices_count = frappe.db.count("Sales Invoice", {"subscription": self.name, "docstatus": ["<", 2]})
+                
+                # 3. Fast-forward the period based on how many invoices were generated
+                if invoices_count > 0:
+                    for _ in range(invoices_count):
+                        # Move current_invoice_start forward to the next cycle
+                        next_start = add_days(self.current_invoice_end, 1)
+                        self.update_subscription_period(next_start)
+
+    def get_current_invoice_end(self, date=None):
+        """
+        Custom Override: Always calculate the invoice end date by adding the billing 
+        cycle to the invoice START date (`date`), rather than the Subscription `start_date`.
+        This ensures trials don't offset the first invoice to be a partial period.
+        """
+        from frappe.utils import getdate, add_to_date, get_last_day, add_months
+        
+        _current_invoice_end = None
+
+        if self.is_trialling() and getdate(date) < getdate(self.trial_period_end):
+            _current_invoice_end = self.trial_period_end
+        else:
+            billing_cycle_info = self.get_billing_cycle_data()
+            if billing_cycle_info:
+                # THIS is the custom fix: We add the interval directly to the `date` (which is current_invoice_start)
+                _current_invoice_end = add_to_date(date, **billing_cycle_info)
+            else:
+                _current_invoice_end = get_last_day(date)
+
+            if self.follow_calendar_months:
+                billing_info = self.get_billing_cycle_and_interval()
+                billing_interval_count = billing_info[0]["billing_interval_count"] if billing_info else 1
+                _end = add_months(getdate(date), billing_interval_count - 1)
+                _current_invoice_end = get_last_day(_end)
+
+            if self.end_date and getdate(_current_invoice_end) > getdate(self.end_date):
+                _current_invoice_end = self.end_date
+
+        return _current_invoice_end
+
+
 
     def get_items_from_plans(self, plans, prorate=0):
         if not plans:

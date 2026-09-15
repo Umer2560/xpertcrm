@@ -32,6 +32,17 @@ def get_unlinked_sales_invoices(customer=None, project=None, search_term=None, s
         conditions.append("si.status NOT IN ('Paid', 'Cancelled')")
         conditions.append("si.outstanding_amount > 0")
 
+    conditions.append("""
+        NOT EXISTS (
+            SELECT 1 
+            FROM `tabPayment Entry Reference` per 
+            JOIN `tabPayment Entry` pe ON pe.name = per.parent 
+            WHERE per.reference_doctype = 'Sales Invoice' 
+              AND per.reference_name = si.name 
+              AND pe.docstatus = 0
+        )
+    """)
+
     if customer:
         conditions.append("si.customer = %(customer)s")
         params["customer"] = customer
@@ -252,6 +263,12 @@ def create_payment_entry_for_invoice(
             if hasattr(pe, "custom_payment_remarks"):
                 pe.custom_payment_remarks = remarks
             pe.remarks = remarks
+            pe.custom_remarks = 1
+        else:
+            if hasattr(pe, "custom_payment_remarks"):
+                pe.custom_payment_remarks = ""
+            pe.remarks = ""
+            pe.custom_remarks = 1
 
         if payment_proof:
             if hasattr(pe, "custom_payment_proof"):
@@ -350,6 +367,7 @@ def update_draft_payment_entry(
             if hasattr(pe, "custom_payment_remarks"):
                 pe.custom_payment_remarks = remarks
             pe.remarks = remarks
+            pe.custom_remarks = 1
 
         if payment_proof:
             if hasattr(pe, "custom_payment_proof"):
