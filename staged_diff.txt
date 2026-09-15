@@ -1,0 +1,256 @@
+diff --git a/xpertintegration/api/integration.py b/xpertintegration/api/integration.py
+index a1b3cd1..861c68f 100644
+--- a/xpertintegration/api/integration.py
++++ b/xpertintegration/api/integration.py
+@@ -2501,7 +2501,13 @@ def process_incoming_integration_payload(payload=None):
+                     "Project", {"project_name": prj_val}, "name"
+                 ) or frappe.db.get_value("Project", prj_val, "name")
+             if not real_name and doc_fields.get("custom_project_company"):
+-                real_name = frappe.db.get_value("Project", {"custom_company_code": doc_fields["custom_project_company"]}, "name") or frappe.db.get_value("Project", {"project_name": doc_fields["custom_project_company"]}, "name")
++                comp_val = doc_fields["custom_project_company"]
++                real_name = (
++                    frappe.db.get_value("Project", {"project_name": comp_val}, "name")
++                    or frappe.db.get_value("Project", comp_val, "name")
++                    or frappe.db.get_value("Customer", {"custom_project_company": comp_val}, "custom_project")
++                    or frappe.db.get_value("CRM Deal", {"custom_company_code": comp_val}, "custom_project")
++                )
+             if not real_name and doc_fields.get("plans"):
+                 plan_list = doc_fields["plans"]
+                 if isinstance(plan_list, list) and len(plan_list) > 0:
+diff --git a/xpertintegration/create_report.py b/xpertintegration/create_report.py
+new file mode 100644
+index 0000000..3d96167
+--- /dev/null
++++ b/xpertintegration/create_report.py
+@@ -0,0 +1,17 @@
++import frappe
++
++def create_report():
++    report_name = "Unpaid Sales Invoices"
++    if not frappe.db.exists("Report", report_name):
++        doc = frappe.get_doc({
++            "doctype": "Report",
++            "report_name": report_name,
++            "ref_doctype": "Sales Invoice",
++            "report_type": "Script Report",
++            "is_standard": "Yes",
++            "module": "xpertintegration"
++        })
++        doc.insert(ignore_permissions=True)
++        print(f"Report '{report_name}' created successfully.")
++    else:
++        print(f"Report '{report_name}' already exists.")
+diff --git a/xpertintegration/xpertintegration/report/__init__.py b/xpertintegration/xpertintegration/report/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/xpertintegration/xpertintegration/report/unpaid_sales_invoices/__init__.py b/xpertintegration/xpertintegration/report/unpaid_sales_invoices/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.js b/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.js
+new file mode 100644
+index 0000000..d680cf8
+--- /dev/null
++++ b/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.js
+@@ -0,0 +1,32 @@
++frappe.query_reports["Unpaid Sales Invoices"] = {
++	"filters": [
++		{
++			"fieldname": "customer",
++			"label": __("Customer"),
++			"fieldtype": "Link",
++			"options": "Customer"
++		},
++		{
++			"fieldname": "project",
++			"label": __("Project"),
++			"fieldtype": "Link",
++			"options": "Project"
++		},
++		{
++			"fieldname": "exclude_draft_payments",
++			"label": __("Exclude Draft Payments"),
++			"fieldtype": "Check",
++			"default": 1
++		}
++	],
++	"formatter": function(value, row, column, data, default_formatter) {
++		value = default_formatter(value, row, column, data);
++		if (column.fieldname == "days_overdue" && data && data.days_overdue > 0) {
++			value = "<span style='color:red'>" + value + "</span>";
++		}
++		if (column.fieldname == "has_draft_payment" && data && data.has_draft_payment == "Yes") {
++			value = "<span style='color:green'>" + value + "</span>";
++		}
++		return value;
++	}
++};
+diff --git a/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.json b/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.json
+new file mode 100644
+index 0000000..dad7e8b
+--- /dev/null
++++ b/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.json
+@@ -0,0 +1,25 @@
++{
++ "add_total_row": 0,
++ "add_translate_data": 0,
++ "columns": [],
++ "creation": "2026-09-10 10:49:24.823587",
++ "disable_prepared_report_automation": 0,
++ "disabled": 0,
++ "docstatus": 0,
++ "doctype": "Report",
++ "filters": [],
++ "idx": 0,
++ "is_standard": "Yes",
++ "letter_head": null,
++ "modified": "2026-09-10 10:49:24.823587",
++ "modified_by": "Administrator",
++ "module": "XpertIntegration",
++ "name": "Unpaid Sales Invoices",
++ "owner": "Administrator",
++ "prepared_report": 0,
++ "ref_doctype": "Sales Invoice",
++ "report_name": "Unpaid Sales Invoices",
++ "report_type": "Script Report",
++ "roles": [],
++ "timeout": 0
++}
+diff --git a/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.py b/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.py
+new file mode 100644
+index 0000000..a81be5a
+--- /dev/null
++++ b/xpertintegration/xpertintegration/report/unpaid_sales_invoices/unpaid_sales_invoices.py
+@@ -0,0 +1,133 @@
++import frappe
++from frappe import _
++
++def execute(filters=None):
++    columns = get_columns()
++    data = get_data(filters)
++    return columns, data
++
++def get_columns():
++    return [
++        {
++            "fieldname": "invoice_id",
++            "label": _("Invoice ID"),
++            "fieldtype": "Link",
++            "options": "Sales Invoice",
++            "width": 150
++        },
++        {
++            "fieldname": "customer",
++            "label": _("Customer"),
++            "fieldtype": "Link",
++            "options": "Customer",
++            "width": 150
++        },
++        {
++            "fieldname": "customer_name",
++            "label": _("Customer Name"),
++            "fieldtype": "Data",
++            "width": 150
++        },
++        {
++            "fieldname": "posting_date",
++            "label": _("Posting Date"),
++            "fieldtype": "Date",
++            "width": 120
++        },
++        {
++            "fieldname": "due_date",
++            "label": _("Due Date"),
++            "fieldtype": "Date",
++            "width": 120
++        },
++        {
++            "fieldname": "days_overdue",
++            "label": _("Days Overdue"),
++            "fieldtype": "Int",
++            "width": 100
++        },
++        {
++            "fieldname": "grand_total",
++            "label": _("Grand Total"),
++            "fieldtype": "Currency",
++            "options": "currency",
++            "width": 120
++        },
++        {
++            "fieldname": "outstanding_amount",
++            "label": _("Outstanding Amount"),
++            "fieldtype": "Currency",
++            "options": "currency",
++            "width": 120
++        },
++        {
++            "fieldname": "currency",
++            "label": _("Currency"),
++            "fieldtype": "Data",
++            "hidden": 1
++        },
++        {
++            "fieldname": "project",
++            "label": _("Project"),
++            "fieldtype": "Link",
++            "options": "Project",
++            "width": 120
++        },
++        {
++            "fieldname": "has_draft_payment",
++            "label": _("Has Draft Payment"),
++            "fieldtype": "Data",
++            "width": 140
++        }
++    ]
++
++def get_data(filters):
++    if not filters: filters = {}
++    conditions = get_conditions(filters)
++    
++    query = f"""
++        SELECT
++            si.name as invoice_id,
++            si.customer,
++            si.customer_name,
++            si.posting_date,
++            si.due_date,
++            DATEDIFF(CURDATE(), si.due_date) as days_overdue,
++            si.grand_total,
++            si.outstanding_amount,
++            si.currency,
++            si.project,
++            IF(
++                (
++                    SELECT pe.name 
++                    FROM `tabPayment Entry Reference` per 
++                    JOIN `tabPayment Entry` pe ON pe.name = per.parent 
++                    WHERE per.reference_doctype = 'Sales Invoice' 
++                      AND per.reference_name = si.name 
++                      AND pe.docstatus = 0 
++                    LIMIT 1
++                ) IS NOT NULL, 
++                'Yes', 'No'
++            ) as has_draft_payment
++        FROM 
++            `tabSales Invoice` si
++        WHERE 
++            si.docstatus = 1 
++            AND si.status NOT IN ('Paid', 'Cancelled')
++            AND si.outstanding_amount > 0
++            {conditions}
++        ORDER BY 
++            si.due_date ASC
++    """
++    
++    return frappe.db.sql(query, filters, as_dict=1)
++
++def get_conditions(filters):
++    conditions = ""
++    if filters.get("customer"):
++        conditions += " AND si.customer = %(customer)s"
++    if filters.get("project"):
++        conditions += " AND si.project = %(project)s"
++    if filters.get("exclude_draft_payments"):
++        conditions += " AND (SELECT pe.name FROM `tabPayment Entry Reference` per JOIN `tabPayment Entry` pe ON pe.name = per.parent WHERE per.reference_doctype = 'Sales Invoice' AND per.reference_name = si.name AND pe.docstatus = 0 LIMIT 1) IS NULL"
++    return conditions
