@@ -461,6 +461,9 @@ def send_api_request(
 
         # If remote server returns success/callback_data in body despite 500 status code, treat as success
         is_body_success = False
+        has_remote_error = False
+        remote_error_msg = None
+
         if isinstance(resp_json, dict):
             if (
                 resp_json.get("status") == "success"
@@ -471,17 +474,7 @@ def send_api_request(
                 )
             ):
                 is_body_success = True
-
-        if not is_body_success:
-            response.raise_for_status()
-
-        resp_payload = resp_json if resp_json is not None else response.text
-
-        has_remote_error = False
-        remote_error_msg = None
-
-        if isinstance(resp_json, dict):
-            if resp_json.get("status") in ["failed", "error"]:
+            elif resp_json.get("status") in ["failed", "error"]:
                 has_remote_error = True
                 remote_error_msg = (
                     resp_json.get("error")
@@ -491,6 +484,12 @@ def send_api_request(
             elif resp_json.get("exc") or resp_json.get("exception"):
                 has_remote_error = True
                 remote_error_msg = resp_json.get("exc") or resp_json.get("exception")
+
+        # If it's not a success and we didn't parse a structured remote error, raise HTTP error
+        if not is_body_success and not has_remote_error:
+            response.raise_for_status()
+
+        resp_payload = resp_json if resp_json is not None else response.text
 
         if has_remote_error:
             status = "Failed"
@@ -4041,6 +4040,8 @@ def on_file_after_insert_crm_deal(doc, method=None):
 # Utilty Functions
 @frappe.whitelist()
 def update_trial_period(doc):
+    is_doc_obj = hasattr(doc, "doctype")
+    
     if isinstance(doc, str):
         doc = frappe.parse_json(doc)
     if isinstance(doc, dict):
@@ -4072,7 +4073,7 @@ def update_trial_period(doc):
     sales_invoices = frappe.get_all(
         "Sales Invoice",
         filters={"subscription": doc_name, "docstatus": ["!=", 2]},
-        pluck="name",
+        fields=["name", "status"],
     )
 
     if len(sales_invoices) > 1:
@@ -4080,7 +4081,9 @@ def update_trial_period(doc):
             f"Cannot update dates: Subscription {doc_name} has multiple active Sales Invoices."
         )
 
-    sales_inv = sales_invoices[0] if sales_invoices else None
+    sales_inv_dict = sales_invoices[0] if sales_invoices else None
+    sales_inv = sales_inv_dict.name if sales_inv_dict else None
+    sales_inv_status = sales_inv_dict.status if sales_inv_dict else None
 
     if sales_inv:
         # Update the invoice dates (from_date and to_date are the standard fields in ERPNext)
@@ -4089,32 +4092,44 @@ def update_trial_period(doc):
             sales_inv,
             {"from_date": new_inv_start, "to_date": new_inv_end},
         )
+        
+        new_cur_inv_start = add_months(new_inv_start, 1)
+        new_cur_inv_end = add_months(new_inv_end, 1)
+    else:
+        new_cur_inv_start = new_inv_start
+        new_cur_inv_end = new_inv_end
 
-        # Update the Subscription dates
+    status_to_set = None
+    if sales_inv_status == "Paid":
+        status_to_set = "Active"
+
+    if is_doc_obj:
+        # If called from a hook (Document object), modify properties directly
+        doc.start_date = new_sub_start
+        doc.end_date = new_sub_end
+        doc.current_invoice_start = new_cur_inv_start
+        doc.current_invoice_end = new_cur_inv_end
+        doc.custom_update_trial_period = 0
+        if status_to_set:
+            doc.status = status_to_set
+    else:
+        # If called from a whitelist/button, update the database directly
+        update_dict = {
+            "start_date": new_sub_start,
+            "end_date": new_sub_end,
+            "current_invoice_start": new_cur_inv_start,
+            "current_invoice_end": new_cur_inv_end,
+            "custom_update_trial_period": 0,
+        }
+        if status_to_set:
+            update_dict["status"] = status_to_set
+
         frappe.db.set_value(
             "Subscription",
             doc_name,
-            {
-                "start_date": new_sub_start,
-                "end_date": new_sub_end,
-                "current_invoice_start": add_months(new_inv_start, 1),
-                "current_invoice_end": add_months(new_inv_end, 1),
-            },
+            update_dict,
         )
-
-    if not sales_inv:
-        frappe.db.set_value(
-            "Subscription",
-            doc_name,
-            {
-                "start_date": new_sub_start,
-                "end_date": new_sub_end,
-                "current_invoice_start": new_inv_start,
-                "current_invoice_end": new_inv_end,
-            },
-        )
-
-    frappe.db.commit()
+        frappe.db.commit()
 
     print(new_inv_start, new_inv_end)
     return {
