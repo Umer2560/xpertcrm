@@ -5,10 +5,16 @@ from collections import defaultdict
 
 
 #  Date range helpers
-def _get_date_range(period):
+def _get_date_range(period, custom_from_date=None, custom_to_date=None):
     today = getdate(nowdate())
-
-    if period == "today":
+    if custom_from_date and custom_to_date:
+        try:
+            from_date = getdate(custom_from_date)
+            to_date = getdate(custom_to_date)
+        except Exception:
+            from_date = today - timedelta(days=29)
+            to_date = today
+    elif period == "today":
         from_date = to_date = today
     elif period == "yesterday":
         from_date = to_date = today - timedelta(days=1)
@@ -40,6 +46,8 @@ def _get_date_range(period):
         to_date = today
 
     span = date_diff(to_date, from_date)
+    if span < 0:
+        span = 0
     prev_to = from_date - timedelta(days=1)
     prev_from = prev_to - timedelta(days=span)
 
@@ -82,7 +90,7 @@ def _subscription_project_map():
 #  Subscription filters
 def _get_subscriptions_in_period(from_date, to_date, project=None, status=None):
     conds = [
-        "(s.start_date BETWEEN %(from_date)s AND %(to_date)s OR DATE(s.creation) BETWEEN %(from_date)s AND %(to_date)s)",
+        "DATE(s.creation) BETWEEN %(from_date)s AND %(to_date)s",
         "s.docstatus != 2",
     ]
     params = {"from_date": from_date, "to_date": to_date}
@@ -180,53 +188,55 @@ def _get_revenue_split(from_date, to_date, project=None, team=None):
         as_dict=True,
     )
 
-    new_revenue = 0.0
-    renewal_revenue = 0.0
+    first_invoice_payment = 0.0
+    renewal_invoice_payment = 0.0
     new_customers = set()
     renewals = 0
 
     for inv in invoices:
-        is_renewal = False
-        if inv.customer:
-            earlier = frappe.db.count(
-                "Sales Invoice",
-                {
-                    "customer": inv.customer,
-                    "docstatus": 1,
-                    "status": ["in", ["Paid", "Return"]],
-                    "posting_date": ["<", from_date],
-                },
+        is_first = False
+        if inv.subscription:
+            first_sub_inv = frappe.db.sql(
+                """
+                SELECT name FROM `tabSales Invoice`
+                WHERE subscription = %(sub)s AND docstatus = 1 AND status IN ('Paid', 'Return')
+                ORDER BY posting_date ASC, creation ASC
+                LIMIT 1
+            """,
+                {"sub": inv.subscription},
+                as_dict=True,
             )
-            if earlier > 0:
-                is_renewal = True
-            else:
-                first_inv = frappe.db.sql(
-                    """
-                    SELECT name FROM `tabSales Invoice`
-                    WHERE customer = %(customer)s AND docstatus = 1 AND status IN ('Paid', 'Return')
-                    ORDER BY posting_date ASC, creation ASC
-                    LIMIT 1
-                """,
-                    {"customer": inv.customer},
-                    as_dict=True,
-                )
-                if first_inv and first_inv[0].name != inv.name:
-                    is_renewal = True
+            if first_sub_inv and first_sub_inv[0].name == inv.name:
+                is_first = True
+        elif inv.customer:
+            first_cust_inv = frappe.db.sql(
+                """
+                SELECT name FROM `tabSales Invoice`
+                WHERE customer = %(customer)s AND docstatus = 1 AND status IN ('Paid', 'Return')
+                ORDER BY posting_date ASC, creation ASC
+                LIMIT 1
+            """,
+                {"customer": inv.customer},
+                as_dict=True,
+            )
+            if first_cust_inv and first_cust_inv[0].name == inv.name:
+                is_first = True
 
-        if is_renewal:
-            renewal_revenue += flt(inv.grand_total)
-            renewals += 1
+        if is_first:
+            first_invoice_payment += flt(inv.grand_total)
+            if inv.customer:
+                new_customers.add(inv.customer)
         else:
-            new_revenue += flt(inv.grand_total)
-            new_customers.add(inv.customer)
+            renewal_invoice_payment += flt(inv.grand_total)
+            renewals += 1
 
     expired_in_period = _count_expired_in_period(from_date, to_date, project)
     total_due = renewals + expired_in_period
     renewal_rate = round((renewals / total_due * 100), 1) if total_due else 0.0
 
     return {
-        "new_revenue": round(new_revenue, 2),
-        "renewal_revenue": round(renewal_revenue, 2),
+        "new_revenue": round(first_invoice_payment, 2),
+        "renewal_revenue": round(renewal_invoice_payment, 2),
         "new_customers": len(new_customers),
         "renewals": renewals,
         "renewal_rate": renewal_rate,
@@ -236,7 +246,7 @@ def _get_revenue_split(from_date, to_date, project=None, team=None):
 def _count_expired_in_period(from_date, to_date, project=None):
     conds = [
         "s.end_date BETWEEN %(from_date)s AND %(to_date)s",
-        "s.status = 'Expired'",
+        "s.status IN ('Expired', 'Cancelled', 'Completed')",
         "s.docstatus != 2",
     ]
     params = {"from_date": from_date, "to_date": to_date}
@@ -260,64 +270,16 @@ def _count_expired_in_period(from_date, to_date, project=None):
     return cint(rows[0].cnt) if rows else 0
 
 
-def _get_churn_stats(project=None):
-    today = getdate(nowdate())
+def _get_churn_stats(from_date, to_date, project=None):
+    conds = [
+        "s.docstatus != 2",
+        "s.status IN ('Expired', 'Cancelled', 'Completed')",
+        "(s.end_date BETWEEN %(from_date)s AND %(to_date)s OR s.cancelation_date BETWEEN %(from_date)s AND %(to_date)s)",
+    ]
+    params = {"from_date": from_date, "to_date": to_date}
 
-    def count_expired_within(days):
-        cutoff = str(today - timedelta(days=days))
-        conds = [
-            "s.status = 'Expired'",
-            "s.docstatus != 2",
-            "s.end_date >= %(cutoff)s",
-            "s.end_date <= %(today)s",
-        ]
-        params = {"cutoff": str(cutoff), "today": str(today)}
-        if project and project != "all":
-            conds.append(
-                """
-                EXISTS (
-                    SELECT 1 FROM `tabSubscription Plan Detail` spd
-                    INNER JOIN `tabSubscription Plan` sp ON (sp.name = spd.plan OR sp.plan_name = spd.plan)
-                    WHERE spd.parent = s.name AND sp.custom_project = %(project)s
-                )
-            """
-            )
-            params["project"] = project
-        where = " AND ".join(conds)
-        rows = frappe.db.sql(
-            f"SELECT COUNT(*) as cnt FROM `tabSubscription` s WHERE {where}",
-            params,
-            as_dict=True,
-        )
-        return cint(rows[0].cnt) if rows else 0
-
-    def count_total_expired():
-        conds = ["s.status = 'Expired'", "s.docstatus != 2"]
-        params = {}
-        if project and project != "all":
-            conds.append(
-                """
-                EXISTS (
-                    SELECT 1 FROM `tabSubscription Plan Detail` spd
-                    INNER JOIN `tabSubscription Plan` sp ON (sp.name = spd.plan OR sp.plan_name = spd.plan)
-                    WHERE spd.parent = s.name AND sp.custom_project = %(project)s
-                )
-            """
-            )
-            params["project"] = project
-        where = " AND ".join(conds)
-        rows = frappe.db.sql(
-            f"SELECT COUNT(*) as cnt FROM `tabSubscription` s WHERE {where}",
-            params,
-            as_dict=True,
-        )
-        return cint(rows[0].cnt) if rows else 0
-
-    # Lost MRR from custom_cost field
-    mrr_conds = ["s.status = 'Expired'", "s.docstatus != 2"]
-    mrr_params = {}
     if project and project != "all":
-        mrr_conds.append(
+        conds.append(
             """
             EXISTS (
                 SELECT 1 FROM `tabSubscription Plan Detail` spd
@@ -326,24 +288,49 @@ def _get_churn_stats(project=None):
             )
         """
         )
-        mrr_params["project"] = project
-    mrr_where = " AND ".join(mrr_conds)
-    lost_mrr_rows = frappe.db.sql(
-        f"SELECT COALESCE(SUM(s.custom_cost), 0) as val FROM `tabSubscription` s WHERE {mrr_where}",
-        mrr_params,
+        params["project"] = project
+
+    where = " AND ".join(conds)
+    rows = frappe.db.sql(
+        f"""
+        SELECT COUNT(*) as cnt, COALESCE(SUM(s.custom_cost), 0) as lost_mrr
+        FROM `tabSubscription` s
+        WHERE {where}
+    """,
+        params,
         as_dict=True,
     )
-    lost_mrr = flt(lost_mrr_rows[0].val) if lost_mrr_rows else 0.0
 
-    expired_lt_3 = count_expired_within(3)
-    expired_lt_7 = count_expired_within(7)
+    not_renewed_count = cint(rows[0].cnt) if rows else 0
+    lost_mrr = flt(rows[0].lost_mrr) if rows else 0.0
+
+    to_dt = getdate(to_date)
+    cutoff_3 = str(to_dt - timedelta(days=3))
+    cutoff_7 = str(to_dt - timedelta(days=7))
+
+    exp_3 = frappe.db.sql(
+        f"""
+        SELECT COUNT(*) as cnt FROM `tabSubscription` s
+        WHERE {where} AND s.end_date >= '{cutoff_3}'
+    """,
+        params,
+        as_dict=True,
+    )
+    exp_7 = frappe.db.sql(
+        f"""
+        SELECT COUNT(*) as cnt FROM `tabSubscription` s
+        WHERE {where} AND s.end_date >= '{cutoff_7}'
+    """,
+        params,
+        as_dict=True,
+    )
 
     return {
-        "total": count_total_expired(),
-        "expired_lt_3": expired_lt_3,
-        "expired_lt_7": expired_lt_7,
-        "expired_gt_3": expired_lt_3,
-        "expired_gt_7": expired_lt_7,
+        "total": not_renewed_count,
+        "expired_lt_3": cint(exp_3[0].cnt) if exp_3 else 0,
+        "expired_lt_7": cint(exp_7[0].cnt) if exp_7 else 0,
+        "expired_gt_3": cint(exp_3[0].cnt) if exp_3 else 0,
+        "expired_gt_7": cint(exp_7[0].cnt) if exp_7 else 0,
         "lost_mrr": round(lost_mrr, 2),
         "change_pct": 0,
     }
@@ -351,8 +338,15 @@ def _get_churn_stats(project=None):
 
 #  Whitelisted API Endpoints
 @frappe.whitelist()
-def get_top_kpis(period="last_30_days", product=None, team=None, status=None):
-    from_date, to_date, prev_from, prev_to = _get_date_range(period)
+def get_top_kpis(
+    period="last_30_days",
+    from_date=None,
+    to_date=None,
+    product=None,
+    team=None,
+    status=None,
+):
+    from_date, to_date, prev_from, prev_to = _get_date_range(period, from_date, to_date)
 
     # Subscriptions
     new_subs_cur = _count_subscriptions(from_date, to_date, product, status)
@@ -369,8 +363,10 @@ def get_top_kpis(period="last_30_days", product=None, team=None, status=None):
     total = rev["new_revenue"] + rev["renewal_revenue"]
     prev_tot = prev_rev["new_revenue"] + prev_rev["renewal_revenue"]
 
-    # Churn
-    churn = _get_churn_stats(product)
+    # Churn / Not Renewed
+    churn = _get_churn_stats(from_date, to_date, product)
+    prev_churn = _get_churn_stats(prev_from, prev_to, product)
+    churn["change_pct"] = _pct_change(churn["total"], prev_churn["total"])
 
     return {
         "currency": frappe.db.get_default("currency") or "USD",
@@ -423,8 +419,15 @@ def get_top_kpis(period="last_30_days", product=None, team=None, status=None):
 
 
 @frappe.whitelist()
-def get_revenue_trend(period="last_30_days", product=None, team=None, groupby="daily"):
-    from_date, to_date, _, _ = _get_date_range(period)
+def get_revenue_trend(
+    period="last_30_days",
+    from_date=None,
+    to_date=None,
+    product=None,
+    team=None,
+    groupby="daily",
+):
+    from_date, to_date, _, _ = _get_date_range(period, from_date, to_date)
 
     if groupby == "monthly":
         date_expr = "DATE_FORMAT(si.posting_date, '%%Y-%%m')"
@@ -500,37 +503,38 @@ def get_revenue_trend(period="last_30_days", product=None, team=None, groupby="d
     trend = defaultdict(lambda: {"new": 0.0, "renewal": 0.0})
     for row in rows:
         lbl = str(row.label)
-        is_renewal = False
-        if row.customer:
-            earlier = frappe.db.count(
-                "Sales Invoice",
-                {
-                    "customer": row.customer,
-                    "docstatus": 1,
-                    "status": ["in", ["Paid", "Return"]],
-                    "posting_date": ["<", from_date],
-                },
+        is_first = False
+        if row.subscription:
+            first_sub_inv = frappe.db.sql(
+                """
+                SELECT name FROM `tabSales Invoice`
+                WHERE subscription = %(sub)s AND docstatus = 1 AND status IN ('Paid', 'Return')
+                ORDER BY posting_date ASC, creation ASC
+                LIMIT 1
+            """,
+                {"sub": row.subscription},
+                as_dict=True,
             )
-            if earlier > 0:
-                is_renewal = True
-            else:
-                first_inv = frappe.db.sql(
-                    """
-                    SELECT name FROM `tabSales Invoice`
-                    WHERE customer = %(customer)s AND docstatus = 1 AND status IN ('Paid', 'Return')
-                    ORDER BY posting_date ASC, creation ASC
-                    LIMIT 1
-                """,
-                    {"customer": row.customer},
-                    as_dict=True,
-                )
-                if first_inv and first_inv[0].name != row.name:
-                    is_renewal = True
+            if first_sub_inv and first_sub_inv[0].name == row.name:
+                is_first = True
+        elif row.customer:
+            first_cust_inv = frappe.db.sql(
+                """
+                SELECT name FROM `tabSales Invoice`
+                WHERE customer = %(customer)s AND docstatus = 1 AND status IN ('Paid', 'Return')
+                ORDER BY posting_date ASC, creation ASC
+                LIMIT 1
+            """,
+                {"customer": row.customer},
+                as_dict=True,
+            )
+            if first_cust_inv and first_cust_inv[0].name == row.name:
+                is_first = True
 
-        if is_renewal:
-            trend[lbl]["renewal"] += flt(row.grand_total)
-        else:
+        if is_first:
             trend[lbl]["new"] += flt(row.grand_total)
+        else:
+            trend[lbl]["renewal"] += flt(row.grand_total)
 
     labels = sorted(trend.keys())
     return {
@@ -541,8 +545,10 @@ def get_revenue_trend(period="last_30_days", product=None, team=None, groupby="d
 
 
 @frappe.whitelist()
-def get_product_performance(period="last_30_days", team=None):
-    from_date, to_date, _, _ = _get_date_range(period)
+def get_product_performance(
+    period="last_30_days", from_date=None, to_date=None, team=None
+):
+    from_date, to_date, _, _ = _get_date_range(period, from_date, to_date)
 
     # Get distinct projects from Subscription Plans
     projects = frappe.db.sql(
@@ -616,8 +622,10 @@ def _get_crm_lead_users():
 
 
 @frappe.whitelist()
-def get_sales_performance(period="last_30_days", product=None, team=None):
-    from_date, to_date, _, _ = _get_date_range(period)
+def get_sales_performance(
+    period="last_30_days", from_date=None, to_date=None, product=None, team=None
+):
+    from_date, to_date, _, _ = _get_date_range(period, from_date, to_date)
 
     users = _get_crm_lead_users()
 
@@ -965,6 +973,8 @@ def get_lead_conversion_metrics(product=None, team=None, status=None):
 def send_kpi_report_email(
     recipients,
     period="last_30_days",
+    from_date=None,
+    to_date=None,
     product="all",
     team="all",
     status="all",
@@ -978,7 +988,14 @@ def send_kpi_report_email(
             frappe._("Please provide at least one valid recipient email address.")
         )
 
-    kpis = get_top_kpis(period=period, product=product, team=team, status=status)
+    kpis = get_top_kpis(
+        period=period,
+        from_date=from_date,
+        to_date=to_date,
+        product=product,
+        team=team,
+        status=status,
+    )
     pipeline = get_lead_conversion_metrics(product=product, team=team, status=status)
 
     currency = kpis.get("currency") or "USD"

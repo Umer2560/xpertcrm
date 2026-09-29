@@ -255,13 +255,24 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
                 <label>Period</label>
                 <select id="f-period">
                     <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
                     <option value="this_week">This Week</option>
+                    <option value="last_7_days">Last 7 Days</option>
                     <option value="last_30_days" selected>Last 30 Days</option>
                     <option value="this_month">This Month</option>
                     <option value="last_month">Last Month</option>
                     <option value="this_quarter">This Quarter</option>
                     <option value="this_year">This Year</option>
+                    <option value="custom">Custom Range</option>
                 </select>
+            </div>
+            <div class="saas-filter-group" id="group-from-date" style="display:none;">
+                <label>From Date</label>
+                <input type="date" id="f-from-date" style="padding:8px 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; outline:none; background:#f9fafb; color:#374151;">
+            </div>
+            <div class="saas-filter-group" id="group-to-date" style="display:none;">
+                <label>To Date</label>
+                <input type="date" id="f-to-date" style="padding:8px 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; outline:none; background:#f9fafb; color:#374151;">
             </div>
             <div class="saas-filter-group">
                 <label>Product</label>
@@ -288,8 +299,8 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
         <div class="saas-kpi-grid" id="kpi-grid">
             ${[
             { id: 'kpi-subs', color: 'blue', icon: '<i class="fa fa-file-text-o"></i>', title: 'New Subscriptions' },
-            { id: 'kpi-new-rev', color: 'green', icon: '<i class="fa fa-money"></i>', title: 'First Payment Revenue' },
-            { id: 'kpi-ren-rev', color: 'purple', icon: '<i class="fa fa-repeat"></i>', title: 'Renewal Revenue' },
+            { id: 'kpi-new-rev', color: 'green', icon: '<i class="fa fa-money"></i>', title: 'First Invoice Payment' },
+            { id: 'kpi-ren-rev', color: 'purple', icon: '<i class="fa fa-repeat"></i>', title: 'Renewal Invoice Payment' },
             { id: 'kpi-total', color: 'amber', icon: '<i class="fa fa-bar-chart"></i>', title: 'Total Collection' },
             { id: 'kpi-churn', color: 'red', icon: '<i class="fa fa-exclamation-triangle"></i>', title: 'Not Renewed / Churned' },
         ].map(c => `
@@ -434,6 +445,70 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
     let currency = frappe.boot.sysdefaults.currency || 'USD';
     let revenueChart = null;
 
+    function get_iso_date(d) {
+        let yr = d.getFullYear();
+        let mo = String(d.getMonth() + 1).padStart(2, '0');
+        let da = String(d.getDate()).padStart(2, '0');
+        return `${yr}-${mo}-${da}`;
+    }
+
+    function update_date_range_inputs(period) {
+        let today = new Date();
+        let from_d = new Date();
+        let to_d = new Date();
+
+        if (period === 'today') {
+            from_d = today;
+            to_d = today;
+        } else if (period === 'yesterday') {
+            from_d = new Date(today);
+            from_d.setDate(today.getDate() - 1);
+            to_d = new Date(from_d);
+        } else if (period === 'this_week') {
+            let day = today.getDay();
+            let diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            from_d = new Date(today);
+            from_d.setDate(diff);
+            to_d = new Date();
+        } else if (period === 'last_7_days') {
+            from_d = new Date(today);
+            from_d.setDate(today.getDate() - 6);
+            to_d = new Date();
+        } else if (period === 'last_30_days') {
+            from_d = new Date(today);
+            from_d.setDate(today.getDate() - 29);
+            to_d = new Date();
+        } else if (period === 'this_month') {
+            from_d = new Date(today.getFullYear(), today.getMonth(), 1);
+            to_d = new Date();
+        } else if (period === 'last_month') {
+            from_d = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            to_d = new Date(today.getFullYear(), today.getMonth(), 0);
+        } else if (period === 'this_quarter') {
+            let q = Math.floor(today.getMonth() / 3);
+            from_d = new Date(today.getFullYear(), q * 3, 1);
+            to_d = new Date();
+        } else if (period === 'this_year') {
+            from_d = new Date(today.getFullYear(), 0, 1);
+            to_d = new Date();
+        } else if (period === 'custom') {
+            $('#group-from-date, #group-to-date').show();
+            if (!$('#f-from-date').val()) {
+                let default_from = new Date(today);
+                default_from.setDate(today.getDate() - 29);
+                $('#f-from-date').val(get_iso_date(default_from));
+            }
+            if (!$('#f-to-date').val()) {
+                $('#f-to-date').val(get_iso_date(today));
+            }
+            return;
+        }
+
+        $('#group-from-date, #group-to-date').hide();
+        $('#f-from-date').val(get_iso_date(from_d));
+        $('#f-to-date').val(get_iso_date(to_d));
+    }
+
     function fmt_currency(val) {
         return format_currency(val, currency, 0);
     }
@@ -447,6 +522,8 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
     function get_filters() {
         return {
             period: $('#f-period').val() || 'last_30_days',
+            from_date: $('#f-from-date').val() || '',
+            to_date: $('#f-to-date').val() || '',
             product: $('#f-product').val() || 'all',
             team: $('#f-team').val() || 'all',
             status: $('#f-status').val() || 'all',
@@ -496,7 +573,7 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
         const fp = d.first_payment;
         $('#kpi-new-rev').html(`
             <div class="saas-kpi-icon icon-green"><i class="fa fa-money"></i></div>
-            <div class="saas-kpi-title">First Payment Revenue</div>
+            <div class="saas-kpi-title">First Invoice Payment</div>
             <div class="saas-kpi-value">${fmt_currency(fp.revenue)}</div>
             ${trend_badge(fp.change_pct)}
             <div class="saas-kpi-details">
@@ -509,7 +586,7 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
         const rn = d.renewal;
         $('#kpi-ren-rev').html(`
             <div class="saas-kpi-icon icon-purple"><i class="fa fa-repeat"></i></div>
-            <div class="saas-kpi-title">Renewal Revenue</div>
+            <div class="saas-kpi-title">Renewal Invoice Payment</div>
             <div class="saas-kpi-value">${fmt_currency(rn.revenue)}</div>
             ${trend_badge(rn.change_pct)}
             <div class="saas-kpi-details">
@@ -667,42 +744,42 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
         // KPIs
         frappe.call({
             method: 'xpertintegration.xpertintegration.page.saas_sales_dashboard.saas_sales_dashboard.get_top_kpis',
-            args: { period: f.period, product: f.product, team: f.team, status: f.status },
+            args: { period: f.period, from_date: f.from_date, to_date: f.to_date, product: f.product, team: f.team, status: f.status },
             callback: r => { if (r.message) { currency = r.message.currency || currency; render_kpis(r.message); } }
         });
 
         // Revenue Trend
         frappe.call({
             method: 'xpertintegration.xpertintegration.page.saas_sales_dashboard.saas_sales_dashboard.get_revenue_trend',
-            args: { period: f.period, product: f.product, team: f.team, groupby },
+            args: { period: f.period, from_date: f.from_date, to_date: f.to_date, product: f.product, team: f.team, groupby },
             callback: r => { if (r.message) render_trend(r.message); }
         });
 
         // Alerts
         frappe.call({
             method: 'xpertintegration.xpertintegration.page.saas_sales_dashboard.saas_sales_dashboard.get_management_alerts',
-            args: { product: f.product, team: f.team },
+            args: { product: f.product, team: f.team, from_date: f.from_date, to_date: f.to_date },
             callback: r => { if (r.message) render_alerts(r.message); }
         });
 
         // Product Performance
         frappe.call({
             method: 'xpertintegration.xpertintegration.page.saas_sales_dashboard.saas_sales_dashboard.get_product_performance',
-            args: { period: f.period, team: f.team },
+            args: { period: f.period, from_date: f.from_date, to_date: f.to_date, team: f.team },
             callback: r => { if (r.message) render_product_table(r.message); }
         });
 
         // Sales Leaderboard
         frappe.call({
             method: 'xpertintegration.xpertintegration.page.saas_sales_dashboard.saas_sales_dashboard.get_sales_performance',
-            args: { period: f.period, product: f.product, team: f.team },
+            args: { period: f.period, from_date: f.from_date, to_date: f.to_date, product: f.product, team: f.team },
             callback: r => { if (r.message) render_sales_table(r.message); }
         });
 
         // Pipeline Conversion & Acquisition Metrics
         frappe.call({
             method: 'xpertintegration.xpertintegration.page.saas_sales_dashboard.saas_sales_dashboard.get_lead_conversion_metrics',
-            args: { product: f.product, team: f.team, status: f.status },
+            args: { product: f.product, team: f.team, status: f.status, from_date: f.from_date, to_date: f.to_date },
             callback: r => {
                 if (r.message) {
                     const m = r.message;
@@ -752,6 +829,8 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
                     args: {
                         recipients: values.recipients,
                         period: f.period,
+                        from_date: f.from_date,
+                        to_date: f.to_date,
                         product: f.product,
                         team: f.team,
                         status: f.status,
@@ -790,8 +869,13 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
         frappe.set_route('List', 'Customer');
     });
 
+    $('#f-period').on('change', function () {
+        update_date_range_inputs($(this).val());
+        refresh_dashboard();
+    });
+
     let filterTimer = null;
-    $('#f-period, #f-product, #f-team, #f-status').on('change blur', () => {
+    $('#f-product, #f-team, #f-status, #f-from-date, #f-to-date').on('change blur', () => {
         clearTimeout(filterTimer);
         filterTimer = setTimeout(() => {
             refresh_dashboard();
@@ -800,6 +884,7 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
 
     $('#btn-reset').on('click', () => {
         $('#f-period').val('last_30_days');
+        update_date_range_inputs('last_30_days');
         $('#f-product').val('all');
         $('#f-team').val('all');
         $('#f-status').val('all');
@@ -812,11 +897,12 @@ frappe.pages['saas-sales-dashboard'].on_page_load = function (wrapper) {
         const groupby = $('#f-trend-group').val() || 'daily';
         frappe.call({
             method: 'xpertintegration.xpertintegration.page.saas_sales_dashboard.saas_sales_dashboard.get_revenue_trend',
-            args: { period: f.period, product: f.product, team: f.team, groupby },
+            args: { period: f.period, from_date: f.from_date, to_date: f.to_date, product: f.product, team: f.team, groupby },
             callback: r => { if (r.message) render_trend(r.message); }
         });
     });
 
     // ── Initial Load ─────────────────────────────────────────────────────────
+    update_date_range_inputs($('#f-period').val());
     refresh_dashboard();
 };
