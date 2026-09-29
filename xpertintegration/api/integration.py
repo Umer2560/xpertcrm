@@ -4076,10 +4076,30 @@ def update_trial_period(doc):
         fields=["name", "status"],
     )
 
-    if len(sales_invoices) > 1:
+    if len(sales_invoices) > 2:
         frappe.throw(
-            f"Cannot update dates: Subscription {doc_name} has multiple active Sales Invoices."
+            f"Cannot update dates: Subscription {doc_name} has more than two active Sales Invoices."
         )
+    elif len(sales_invoices) == 2:
+        paid_invoices = [inv for inv in sales_invoices if inv.status == "Paid"]
+        unpaid_invoices = [inv for inv in sales_invoices if inv.status != "Paid"]
+
+        if len(paid_invoices) == 1 and len(unpaid_invoices) == 1:
+            unpaid_inv_name = unpaid_invoices[0].name
+            # Cancel the unpaid invoice
+            inv_doc = frappe.get_doc("Sales Invoice", unpaid_inv_name)
+            if inv_doc.docstatus == 1:
+                inv_doc.flags.ignore_permissions = True
+                inv_doc.cancel()
+            elif inv_doc.docstatus == 0:
+                frappe.delete_doc("Sales Invoice", unpaid_inv_name, force=True, ignore_permissions=True)
+            
+            # Keep the paid one for the rest of the flow
+            sales_invoices = paid_invoices
+        else:
+            frappe.throw(
+                f"Cannot update dates: Subscription {doc_name} has multiple active Sales Invoices and could not automatically resolve (requires exactly one Paid and one Unpaid)."
+            )
 
     sales_inv_dict = sales_invoices[0] if sales_invoices else None
     sales_inv = sales_inv_dict.name if sales_inv_dict else None
